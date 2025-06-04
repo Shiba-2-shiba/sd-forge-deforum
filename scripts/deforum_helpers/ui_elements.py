@@ -27,6 +27,23 @@ from .gradio_funcs import (upload_vid_to_interpolate, upload_pics_to_interpolate
                            ncnn_upload_vid_to_upscale, upload_vid_to_depth)
 from .video_audio_utilities import direct_stitch_vid_from_frames
 
+try:
+    from .wan.utils.wan_progress_utils import (
+        print_wan_info,
+        print_wan_success,
+        print_wan_warning,
+        print_wan_error,
+        print_wan_progress
+    )
+except ImportError:
+    # フォールバックとして、通常のprint関数を使用するなどの処理も考えられます
+    def print_wan_info(msg): print(f"Wan Info: {msg}")
+    def print_wan_success(msg): print(f"Wan Success: {msg}")
+    def print_wan_warning(msg): print(f"Wan Warning: {msg}")
+    def print_wan_error(msg): print(f"Wan Error: {msg}")
+    def print_wan_progress(msg): print(f"Wan Progress: {msg}")
+    print("Warning: Could not import wan_progress_utils. Using basic print for Wan messages.")
+    
 
 def create_gr_elem(d):
     # Capitalize and CamelCase the orig value under "type", which defines gr.inputs.type in lower_case.
@@ -757,6 +774,15 @@ The auto-discovery will find your models automatically!
             
         print(f"🎯 Selected model: {selected_model['name']} ({selected_model['type']}, {selected_model['size']})")
         print(f"📁 Model path: {selected_model['path']}")
+        
+       # --- ここから追加 ---
+        print_wan_info("🔧 Attempting to load selected Wan pipeline...")
+        if not integration.load_simple_wan_pipeline(selected_model, wan_args): # wan_args を渡してFlash Attention設定を読み込めるようにする
+            # パイプラインのロードに失敗した場合、エラーを発生させるか、適切なフォールバック処理を行う
+            # この例ではRuntimeErrorを発生させています
+            raise RuntimeError(f"Failed to load Wan pipeline for {selected_model['name']}")
+        print_wan_success("✅ Wan pipeline loaded successfully!")
+        # --- ここまで追加 ---
         
         # Prepare output directory (let Deforum handle directory creation)
         output_directory = args.outdir if hasattr(args, 'outdir') else root.outdir 
