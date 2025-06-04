@@ -1,3 +1,11 @@
+# Important: About this fork  
+This is an experimental fork version designed to run the Wan2.1 model in my own environment.  
+- You must have at least 16 GB of VRAM.  
+- In the “Extensions” tab of Forge, make sure you also clone:  
+  `https://github.com/Wan-Video/Wan2.1`  
+---
+
+
 # Zirteq Fluxabled Fork
 
 Experimental fork of the [Deforum extension](https://github.com/deforum-art/sd-forge-deforum)
