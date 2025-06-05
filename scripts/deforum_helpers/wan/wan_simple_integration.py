@@ -12,6 +12,7 @@ Applied fix for TypeError: WanVace.generate() got an unexpected keyword argument
 Applied fix for ValueError: high is out of bounds for int32 in np.random.randint.
 Applied fix for tensor permutation in _process_and_save_frames.
 Applied fix for qwen_manager import path.
+Added detailed debugging for frame processing and ensured contiguous numpy array for PIL.
 """
 
 from pathlib import Path
@@ -325,46 +326,61 @@ class WanSimpleIntegration:
                 print_wan_info(f"Processing tensor output: {frames_data.shape}, dtype: {frames_data.dtype}, device: {frames_data.device}")
                 frames_tensor = frames_data.detach().cpu()
 
-                if frames_tensor.ndim == 5 and frames_tensor.shape[0] == 1: # バッチ次元が1の場合は削除
-                    frames_tensor = frames_tensor.squeeze(0) # Shape becomes (C, F, H, W) or similar
+                if frames_tensor.ndim == 5 and frames_tensor.shape[0] == 1: 
+                    frames_tensor = frames_tensor.squeeze(0) 
 
                 if frames_tensor.ndim == 4:
-                    # ログから形状は (C, F, H, W) と判断される (例: [3, 13, 832, 480])
-                    # C = チャンネル数, F = フレーム数, H = 高さ, W = 幅
-                    
-                    # まずデータ型を[0, 1]の範囲のfloatに正規化し、その後[0, 255]のbyteに変換
                     if frames_tensor.dtype in [torch.float32, torch.bfloat16, torch.float16]:
-                        if frames_tensor.min() < -0.5:  # [-1, 1] の範囲と仮定
+                        if frames_tensor.min() < -0.5: 
                             frames_tensor = (frames_tensor + 1.0) / 2.0
                         frames_tensor = (frames_tensor.clamp(0, 1) * 255).byte()
                     
-                    # (C, F, H, W) -> (F, H, W, C) に並び替え
-                    # これにより、各フレームが (H, W, C) の形式になる
-                    if frames_tensor.shape[0] == 3 or frames_tensor.shape[0] == 1 : # チャンネル数が先頭の場合
+                    # テンソルの形状に応じて適切なpermuteを実行
+                    # 想定される入力形状: (C, F, H, W) または (F, C, H, W)
+                    # 出力目標形状: (F, H, W, C) for PIL
+                    
+                    # (C, F, H, W) の場合
+                    if frames_tensor.shape[0] == 3 or frames_tensor.shape[0] == 1: 
                         print_wan_info(f"Tensor shape {frames_tensor.shape} detected as (Channels, Frames, Height, Width). Permuting to (Frames, Height, Width, Channels).")
                         frames_tensor_fhwc = frames_tensor.permute(1, 2, 3, 0)
-                    elif frames_tensor.shape[1] == 3 or frames_tensor.shape[1] == 1: # フレーム数が先頭でチャンネル数が2番目の場合 (F, C, H, W)
+                    # (F, C, H, W) の場合
+                    elif frames_tensor.shape[1] == 3 or frames_tensor.shape[1] == 1: 
                         print_wan_info(f"Tensor shape {frames_tensor.shape} detected as (Frames, Channels, Height, Width). Permuting to (Frames, Height, Width, Channels).")
                         frames_tensor_fhwc = frames_tensor.permute(0, 2, 3, 1)
                     else:
                         print_wan_warning(f"Unexpected tensor shape for clip {clip_idx + 1}: {frames_tensor.shape}. Cannot reliably determine channel/frame order.")
                         return []
+                    
+                    print_wan_info(f"DEBUG: frames_tensor_fhwc shape after permute: {frames_tensor_fhwc.shape}, dtype: {frames_tensor_fhwc.dtype}")
 
-                    for i in range(frames_tensor_fhwc.shape[0]): # フレームごとに処理
-                        frame_np = frames_tensor_fhwc[i].numpy() # (H, W, C)
-                        if frame_np.shape[-1] == 1: # グレースケールの場合 (H, W, 1) -> (H, W)
+                    for i in range(frames_tensor_fhwc.shape[0]): 
+                        frame_np = frames_tensor_fhwc[i].numpy() 
+                        print_wan_info(f"DEBUG: frame_np original shape for frame {i}: {frame_np.shape}, dtype: {frame_np.dtype}")
+                        
+                        if frame_np.shape[-1] == 1: 
                             frame_np = frame_np.squeeze(-1)
-                        frames_pil.append(Image.fromarray(frame_np))
+                            print_wan_info(f"DEBUG: frame_np after squeeze for frame {i}: {frame_np.shape}, dtype: {frame_np.dtype}")
+                        
+                        frame_np_contiguous = np.ascontiguousarray(frame_np) # PILのために連続配列を保証
+                        print_wan_info(f"DEBUG: frame_np_contiguous shape for frame {i}: {frame_np_contiguous.shape}, dtype: {frame_np_contiguous.dtype}")
+
+                        try:
+                            pil_img = Image.fromarray(frame_np_contiguous)
+                            frames_pil.append(pil_img)
+                        except Exception as e_pil_fromarray:
+                            print_wan_error(f"Error converting frame {i} to PIL Image: {e_pil_fromarray}. frame_np_contiguous shape: {frame_np_contiguous.shape}, dtype: {frame_np_contiguous.dtype}")
+                            continue # このフレームをスキップして次に進む
+
                         if frame_progress: frame_progress.update(1)
                 else:
                     print_wan_warning(f"Unexpected tensor ndim for clip {clip_idx + 1}: {frames_tensor.ndim}. Cannot process into frames.")
                     return []
 
-            elif isinstance(frames_data, list): # PILイメージのリストの場合
+            elif isinstance(frames_data, list): 
                 if all(isinstance(f, Image.Image) for f in frames_data):
                     frames_pil = frames_data
                     if frame_progress: [frame_progress.update(1) for _ in frames_pil]
-                elif all(isinstance(f, np.ndarray) for f in frames_data): # NumPy配列のリストの場合
+                elif all(isinstance(f, np.ndarray) for f in frames_data): 
                     for frame_np_item in frames_data:
                         if frame_np_item.dtype in [np.float32, np.float64]:
                             if frame_np_item.min() < -0.5: frame_np_item = (frame_np_item + 1.0) / 2.0
@@ -469,7 +485,7 @@ class WanSimpleIntegration:
                 "generation_timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())),
                 "device": str(self.device),
                 
-                "wan_integration_version": "1.1.8_tensor_fix", # このスクリプトのバージョン
+                "wan_integration_version": "1.1.9_tensor_debug", # このスクリプトのバージョン
                 "deforum_version_info": self._get_deforum_version(),
             }
             
