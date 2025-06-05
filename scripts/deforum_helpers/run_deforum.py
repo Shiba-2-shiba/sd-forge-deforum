@@ -149,10 +149,22 @@ def run_deforum(*args):
                     print(f"Using smart model discovery and direct integration.")
                     
                     # Use the generate function that handles everything
-                    output_dir = generate_wan_video(args, anim_args, video_args, 0, False, False, root, root.animation_prompts, loop_args, parseq_args, freeu_args, controlnet_args, None, None, None, wan_args, None)
-                    
+                    wan_result = generate_wan_video(
+                        args, anim_args, video_args, 0, False, False, root,
+                        root.animation_prompts, loop_args, parseq_args,
+                        freeu_args, controlnet_args, None, None, None,
+                        wan_args, None
+                    )
+
                     print(f"✅ Wan video generation completed successfully!")
-                    print(f"📁 Output directory: {output_dir}")
+                    if isinstance(wan_result, dict):
+                        print(f"📁 Output directory: {wan_result.get('output_dir')}")
+                        # Update timestring and frame count for ffmpeg processing
+                        root.timestring = wan_result.get('timestring', root.timestring)
+                        anim_args.max_frames = wan_result.get('total_frames_generated', anim_args.max_frames)
+                        JobStatusTracker().update_output_info(job_id, outdir=args.outdir, timestring=root.timestring)
+                    else:
+                        print(f"📁 Output directory: {wan_result}")
                     
                 except Exception as e:
                     print(f"{RED}Wan video generation failed: {e}{RESET_COLOR}")
