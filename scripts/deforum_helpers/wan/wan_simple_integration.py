@@ -861,12 +861,14 @@ class WanSimpleIntegration:
                     print_wan_info(f"VACE Wrapper: Model size '{self.model_size_str}', Optimal resolution set to {self.optimal_width}x{self.optimal_height}")
 
                 def __call__(self, prompt, height, width, num_frames, num_inference_steps, guidance_scale, seed=-1, **kwargs):
-                    aligned_width = self.optimal_width 
-                    aligned_height = self.optimal_height
+                    aligned_width = width
+                    aligned_height = height
 
-                    if width != aligned_width or height != aligned_height:
-                        print_wan_info(f"VACE T2V: Aligning input resolution {width}x{height} to model's optimal {aligned_width}x{aligned_height}")
-                    
+                    if width != self.optimal_width or height != self.optimal_height:
+                        print_wan_info(
+                            f"VACE T2V: Using non-optimal resolution {width}x{height} (optimal {self.optimal_width}x{self.optimal_height})"
+                        )
+
                     print_wan_info(f"VACE T2V generating with prompt: '{prompt[:70]}...' Res: {aligned_width}x{aligned_height}, Frames: {num_frames}, Steps: {num_inference_steps}")
                     get_vram_stats(f"Before VACE T2V generate call for '{prompt[:30]}...'")
                     try:
@@ -887,7 +889,7 @@ class WanSimpleIntegration:
                             input_frames=src_video,
                             input_masks=src_mask,
                             input_ref_images=src_ref_images,
-                            size=(aligned_width, aligned_height), 
+                            size=(aligned_height, aligned_width),
                             frame_num=num_frames,
                             sampling_steps=num_inference_steps, 
                             guide_scale=guidance_scale,
@@ -906,12 +908,14 @@ class WanSimpleIntegration:
                         raise
 
                 def generate_image2video(self, image, prompt, height, width, num_frames, num_inference_steps, guidance_scale, seed=-1, **kwargs):
-                    aligned_width = self.optimal_width
-                    aligned_height = self.optimal_height
+                    aligned_width = width
+                    aligned_height = height
                     enhanced_prompt = f"Continuing from the provided image, {prompt}. Maintain visual style and continuity."
 
-                    if width != aligned_width or height != aligned_height:
-                         print_wan_info(f"VACE I2V: Aligning input resolution {width}x{height} to model's optimal {aligned_width}x{aligned_height}")
+                    if width != self.optimal_width or height != self.optimal_height:
+                         print_wan_info(
+                             f"VACE I2V: Using non-optimal resolution {width}x{height} (optimal {self.optimal_width}x{self.optimal_height})"
+                         )
 
                     print_wan_info(f"VACE I2V generating with prompt: '{enhanced_prompt[:70]}...' Res: {aligned_width}x{aligned_height}, Frames: {num_frames}, Steps: {num_inference_steps}")
                     get_vram_stats(f"Before VACE I2V generate call for '{prompt[:30]}...'")
@@ -966,7 +970,7 @@ class WanSimpleIntegration:
                             input_frames=src_video,
                             input_masks=src_mask,
                             input_ref_images=src_ref_images,
-                            size=(aligned_width, aligned_height), 
+                            size=(aligned_height, aligned_width),
                             frame_num=num_frames,
                             sampling_steps=num_inference_steps, 
                             guide_scale=guidance_scale,
