@@ -877,28 +877,71 @@ class WanSimpleIntegration:
                         src_ref_images_list_t2v = [None]
 
                         src_video, src_mask, src_ref_images = self.vace_model.prepare_source(
-                            src_video_list_t2v,                
-                            src_mask_list_t2v,                 
-                            src_ref_images_list_t2v,           
-                            num_frames=num_frames,             
-                            image_size=(aligned_height, aligned_width), 
-                            device=self.device                 
+                            src_video_list_t2v,
+                            src_mask_list_t2v,
+                            src_ref_images_list_t2v,
+                            num_frames=num_frames,
+                            image_size=(aligned_height, aligned_width),
+                            device=self.device
                         )
                         result = self.vace_model.generate(
                             input_prompt=prompt,
                             input_frames=src_video,
                             input_masks=src_mask,
                             input_ref_images=src_ref_images,
-                            size=(aligned_height, aligned_width),
+                            size=(aligned_width, aligned_height),
                             frame_num=num_frames,
-                            sampling_steps=num_inference_steps, 
+                            sampling_steps=num_inference_steps,
                             guide_scale=guidance_scale,
-                            shift=16, 
-                            seed=seed if seed != -1 else np.random.randint(0, 2**31 - 1), 
-                            **kwargs 
+                            shift=16,
+                            seed=seed if seed != -1 else np.random.randint(0, 2**31 - 1),
+                            **kwargs
                         )
                         get_vram_stats(f"After VACE T2V generate call for '{prompt[:30]}...'")
                         return result
+                    except NotImplementedError as e_gen:
+                        print_wan_warning(
+                            f"VACE T2V resolution {aligned_width}x{aligned_height} not supported: {e_gen}.\n"
+                            f"Falling back to optimal {self.optimal_width}x{self.optimal_height}."
+                        )
+                        aligned_width = self.optimal_width
+                        aligned_height = self.optimal_height
+                        try:
+                            src_video, src_mask, src_ref_images = self.vace_model.prepare_source(
+                                src_video_list_t2v,
+                                src_mask_list_t2v,
+                                src_ref_images_list_t2v,
+                                num_frames=num_frames,
+                                image_size=(aligned_height, aligned_width),
+                                device=self.device
+                            )
+                            result = self.vace_model.generate(
+                                input_prompt=prompt,
+                                input_frames=src_video,
+                                input_masks=src_mask,
+                                input_ref_images=src_ref_images,
+                                size=(aligned_width, aligned_height),
+                                frame_num=num_frames,
+                                sampling_steps=num_inference_steps,
+                                guide_scale=guidance_scale,
+                                shift=16,
+                                seed=seed if seed != -1 else np.random.randint(0, 2**31 - 1),
+                                **kwargs
+                            )
+                            get_vram_stats(
+                                f"After VACE T2V generate call (fallback) for '{prompt[:30]}...'"
+                            )
+                            return result
+                        except Exception as e_fallback:
+                            print_wan_error(f"VACE T2V fallback generation failed: {e_fallback}")
+                            import traceback
+                            traceback.print_exc()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            get_vram_stats(
+                                f"After VACE T2V fallback failure and cache clear for '{prompt[:30]}...'"
+                            )
+                            raise
                     except Exception as e_gen:
                         print_wan_error(f"VACE T2V generation failed: {e_gen}")
                         import traceback
@@ -957,12 +1000,12 @@ class WanSimpleIntegration:
                             return self.__call__(prompt, height, width, num_frames, num_inference_steps, guidance_scale, seed=seed, **kwargs)
 
                         src_video, src_mask, src_ref_images = self.vace_model.prepare_source(
-                            src_video_list_i2v,                
-                            src_mask_list_i2v,                 
-                            src_ref_images_list_i2v,           
-                            num_frames=num_frames,             
-                            image_size=(aligned_height, aligned_width), 
-                            device=self.device                 
+                            src_video_list_i2v,
+                            src_mask_list_i2v,
+                            src_ref_images_list_i2v,
+                            num_frames=num_frames,
+                            image_size=(aligned_height, aligned_width),
+                            device=self.device
                         )
 
                         result = self.vace_model.generate(
@@ -970,16 +1013,59 @@ class WanSimpleIntegration:
                             input_frames=src_video,
                             input_masks=src_mask,
                             input_ref_images=src_ref_images,
-                            size=(aligned_height, aligned_width),
+                            size=(aligned_width, aligned_height),
                             frame_num=num_frames,
-                            sampling_steps=num_inference_steps, 
+                            sampling_steps=num_inference_steps,
                             guide_scale=guidance_scale,
-                            shift=16, 
+                            shift=16,
                             seed=seed if seed != -1 else np.random.randint(0, 2**31 - 1),
                             **kwargs
                         )
                         get_vram_stats(f"After VACE I2V generate call for '{prompt[:30]}...'")
                         return result
+                    except NotImplementedError as e_gen_i2v:
+                        print_wan_warning(
+                            f"VACE I2V resolution {aligned_width}x{aligned_height} not supported: {e_gen_i2v}.\n"
+                            f"Falling back to optimal {self.optimal_width}x{self.optimal_height}."
+                        )
+                        aligned_width = self.optimal_width
+                        aligned_height = self.optimal_height
+                        try:
+                            src_video, src_mask, src_ref_images = self.vace_model.prepare_source(
+                                src_video_list_i2v,
+                                src_mask_list_i2v,
+                                src_ref_images_list_i2v,
+                                num_frames=num_frames,
+                                image_size=(aligned_height, aligned_width),
+                                device=self.device
+                            )
+                            result = self.vace_model.generate(
+                                input_prompt=enhanced_prompt,
+                                input_frames=src_video,
+                                input_masks=src_mask,
+                                input_ref_images=src_ref_images,
+                                size=(aligned_width, aligned_height),
+                                frame_num=num_frames,
+                                sampling_steps=num_inference_steps,
+                                guide_scale=guidance_scale,
+                                shift=16,
+                                seed=seed if seed != -1 else np.random.randint(0, 2**31 - 1),
+                                **kwargs
+                            )
+                            get_vram_stats(
+                                f"After VACE I2V generate call (fallback) for '{prompt[:30]}...'"
+                            )
+                            return result
+                        except Exception as e_fallback_i2v:
+                            print_wan_error(f"VACE I2V fallback generation failed: {e_fallback_i2v}")
+                            import traceback
+                            traceback.print_exc()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            get_vram_stats(
+                                f"After VACE I2V fallback failure and cache clear for '{prompt[:30]}...'"
+                            )
+                            raise
                     except Exception as e_gen_i2v:
                         print_wan_error(f"VACE I2V generation failed: {e_gen_i2v}")
                         import traceback
