@@ -1005,19 +1005,19 @@ The auto-discovery will find your models automatically!
             
             mode_description = "I2V chaining"
         
-        generated_videos = [output_file] if output_file else []
-        
+        generation_result = output_file if output_file else None
+
         total_time = time.time() - start_time
-        
-        if generated_videos:
+
+        if generation_result:
             print(f"\n🎉 Wan {mode_description} generation completed!")
             print(f"✅ Generated seamless video with {len(clips_data)} clips using {mode_description}")
             print(f"⏱️ Total time: {total_time:.1f} seconds")
-            print(f"📁 Output file: {generated_videos[0]}")
+            print(f"📁 Output file: {generation_result.get('output_dir')}")
             print(f"🔗 {mode_description} ensures smooth transitions between clips")
-                
-            # Return the output directory for Deforum's video processing
-            return str(output_directory)
+
+            # Return the full generation result dictionary for Deforum's processing
+            return generation_result
         else:
             raise RuntimeError(f"❌ Wan {mode_description} failed")
             
