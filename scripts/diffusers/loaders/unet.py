@@ -120,7 +120,7 @@ class UNet2DConditionLoadersMixin:
         Example:
 
         ```py
-        from diffusers import AutoPipelineForText2Image
+        from .. import DiffusionPipeline import AutoPipelineForText2Image
         import torch
 
         pipeline = AutoPipelineForText2Image.from_pretrained(
@@ -395,7 +395,7 @@ class UNet2DConditionLoadersMixin:
         return is_model_cpu_offload, is_sequential_cpu_offload
 
     @classmethod
-    # Copied from diffusers.loaders.lora_base.LoraBaseMixin._optionally_disable_offloading
+    # Copied .loaders.lora_base.LoraBaseMixin._optionally_disable_offloading
     def _optionally_disable_offloading(cls, _pipeline):
         """
         Optionally removes offloading in case the pipeline has been already sequentially offloaded to CPU.
@@ -441,7 +441,7 @@ class UNet2DConditionLoadersMixin:
 
         ```py
         import torch
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline import DiffusionPipeline
 
         pipeline = DiffusionPipeline.from_pretrained(
             "CompVis/stable-diffusion-v1-4",
