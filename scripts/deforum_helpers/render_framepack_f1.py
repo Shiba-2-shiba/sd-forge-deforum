@@ -60,7 +60,7 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     """Render video with FramePack F1 while carefully managing GPU memory."""
     print("Starting FramePack F1 rendering process with memory management...")
 
-    unet = shared.sd_model.model.diffusion_model
+    unet = shared.sd_model.unet
     vae = shared.sd_model.first_stage_model
 
     # 1. Encode the initial image with the VAE on GPU
