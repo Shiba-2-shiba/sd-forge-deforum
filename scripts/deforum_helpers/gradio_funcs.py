@@ -20,6 +20,11 @@ from .general_utils import get_os
 from .upscaling import process_ncnn_upscale_vid_upload_logic
 from .video_audio_utilities import extract_number, get_quick_vid_info, get_ffmpeg_params
 from .frame_interpolation import process_interp_vid_upload_logic, process_interp_pics_upload_logic, gradio_f_interp_get_fps_and_fcount
+
+
+def toggle_framepack_visibility(mode):
+    """Show FramePack F1 accordion when selected"""
+    return gr.update(visible=(mode == 'FramePack F1'))
 from .vid2depth import process_depth_vid_upload_logic
 
 f_models_path = ph.models_path + '/Deforum'
@@ -31,6 +36,11 @@ def handle_change_functions(l_vars):
     l_vars['enable_ancestral_eta_scheduling'].change(fn=hide_if_false, inputs=l_vars['enable_ancestral_eta_scheduling'], outputs=l_vars['ancestral_eta_schedule'])
     l_vars['enable_ddim_eta_scheduling'].change(fn=hide_if_false, inputs=l_vars['enable_ddim_eta_scheduling'], outputs=l_vars['ddim_eta_schedule'])
     l_vars['animation_mode'].change(fn=change_max_frames_visibility, inputs=l_vars['animation_mode'], outputs=l_vars['max_frames'])
+    l_vars['animation_mode'].change(
+        fn=toggle_framepack_visibility,
+        inputs=l_vars['animation_mode'],
+        outputs=l_vars['framepack_f1_accordion']
+    )
     diffusion_cadence_outputs = [l_vars['diffusion_cadence'], l_vars['guided_images_accord'], l_vars['optical_flow_cadence_row'], l_vars['cadence_flow_factor_schedule'],
                                  l_vars['optical_flow_redo_generation'], l_vars['redo_flow_factor_schedule'], l_vars['diffusion_redo']]
     for output in diffusion_cadence_outputs:
