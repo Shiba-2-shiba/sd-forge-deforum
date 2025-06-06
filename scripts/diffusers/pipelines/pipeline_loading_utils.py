@@ -598,7 +598,7 @@ def _assign_components_to_devices(
 
 def _get_final_device_map(device_map, pipeline_class, passed_class_obj, init_dict, library, max_memory, **kwargs):
     # To avoid circular import problem.
-    from diffusers import pipelines
+    from .. import pipelines
 
     torch_dtype = kwargs.get("torch_dtype", torch.float32)
 
@@ -926,7 +926,7 @@ def _maybe_raise_warning_for_inpainting(pipeline_class, pretrained_model_name_or
     if pipeline_class.__name__ == "StableDiffusionInpaintPipeline" and version.parse(
         version.parse(config["_diffusers_version"]).base_version
     ) <= version.parse("0.5.1"):
-        from diffusers import StableDiffusionInpaintPipeline, StableDiffusionInpaintPipelineLegacy
+        from .. import StableDiffusionInpaintPipeline, StableDiffusionInpaintPipelineLegacy
 
         pipeline_class = StableDiffusionInpaintPipelineLegacy
 
