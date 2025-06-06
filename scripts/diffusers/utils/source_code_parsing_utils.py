@@ -32,8 +32,8 @@ class ReturnNameVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _determine_parent_module(self, cls):
-        from diffusers import DiffusionPipeline
-        from diffusers.models.modeling_utils import ModelMixin
+        from .. import DiffusionPipeline
+        from ..models.modeling_utils import ModelMixin
 
         if issubclass(cls, DiffusionPipeline):
             return "pipelines"
