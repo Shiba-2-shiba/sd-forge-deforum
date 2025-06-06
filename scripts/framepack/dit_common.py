@@ -1,7 +1,7 @@
 import torch
 import accelerate.accelerator
 
-from diffusers.models.normalization import RMSNorm, LayerNorm, FP32LayerNorm, AdaLayerNormContinuous
+from ..diffusers.models.normalization import RMSNorm, LayerNorm, FP32LayerNorm, AdaLayerNormContinuous
 
 
 accelerate.accelerator.convert_outputs_to_fp32 = lambda x: x
