@@ -28,7 +28,7 @@ from scripts.framepack.transformer_manager import TransformerManager
 from scripts.framepack.text_encoder_manager import TextEncoderManager
 
 # VAEとトークナイザーをロードするためのインポート
-from diffusers import AutoencoderKLHunyuanVideo
+from scripts.diffusers.models.autoencoders.autoencoder_kl_hunyuan_video import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer
 
 # FramePackのコア機能
