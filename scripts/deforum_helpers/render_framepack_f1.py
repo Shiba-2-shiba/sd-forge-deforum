@@ -20,14 +20,30 @@ F1_TRANSFORMER = None
 def load_f1_model(root):
     global F1_TRANSFORMER
     if F1_TRANSFORMER is None:
-        model_path = os.path.join(root.models_path, "framepack", "f1_model_weights.pth")
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"FramePack F1 model not found at: {model_path}")
-        print("Loading FramePack F1 model...")
-        # Placeholder load - actual model loading depends on repo structure
-        F1_TRANSFORMER = HunyuanVideoTransformer3DModelPacked()
-        state_dict = torch.load(model_path, map_location=root.device)
-        F1_TRANSFORMER.load_state_dict(state_dict)
+        model_base = os.path.expanduser(
+            "~/.cache/huggingface/hub/models--lllyasviel--FramePack_F1_I2V_HY_20250503"
+        )
+        if not os.path.isdir(model_base):
+            raise FileNotFoundError(
+                f"FramePack F1 model directory not found at: {model_base}"
+            )
+
+        snapshots_dir = os.path.join(model_base, "snapshots")
+        snapshots = (
+            [d for d in os.listdir(snapshots_dir) if os.path.isdir(os.path.join(snapshots_dir, d))]
+            if os.path.isdir(snapshots_dir)
+            else []
+        )
+        if not snapshots:
+            raise FileNotFoundError(f"No snapshot found in {snapshots_dir}")
+
+        model_directory = os.path.join(snapshots_dir, snapshots[0])
+        print(f"Loading sharded FramePack F1 model from: {model_directory}")
+
+        F1_TRANSFORMER = HunyuanVideoTransformer3DModelPacked.from_pretrained(
+            model_directory,
+            torch_dtype=torch.float16,
+        )
         F1_TRANSFORMER.eval().to(root.device)
         print("FramePack F1 model loaded.")
     return F1_TRANSFORMER
