@@ -1,8 +1,7 @@
 import torch
 import traceback
 import gc
-from diffusers_helper.memory import DynamicSwapInstaller
-from locales.i18n_extended import translate
+from .memory import DynamicSwapInstaller
 
 class TextEncoderManager:
     """text_encoderとtext_encoder_2の状態管理を行うクラス
