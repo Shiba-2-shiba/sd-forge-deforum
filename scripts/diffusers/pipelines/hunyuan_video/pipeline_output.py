@@ -5,7 +5,7 @@ import numpy as np
 import PIL.Image
 import torch
 
-from diffusers.utils import BaseOutput
+from ...utils import BaseOutput
 
 
 @dataclass
