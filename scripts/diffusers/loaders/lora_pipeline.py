@@ -532,7 +532,7 @@ class StableDiffusionLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -996,7 +996,7 @@ class StableDiffusionXLLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -1415,7 +1415,7 @@ class SD3LoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -1737,7 +1737,7 @@ class AuraFlowLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -2285,7 +2285,7 @@ class FluxLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -3053,7 +3053,7 @@ class CogVideoXLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -3371,7 +3371,7 @@ class Mochi1LoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -3693,7 +3693,7 @@ class LTXVideoLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -4012,7 +4012,7 @@ class SanaLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -4334,7 +4334,7 @@ class HunyuanVideoLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -4657,7 +4657,7 @@ class Lumina2LoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -5030,7 +5030,7 @@ class WanLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -5349,7 +5349,7 @@ class CogView4LoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -5671,7 +5671,7 @@ class HiDreamImageLoraLoaderMixin(LoraBaseMixin):
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from .. import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
