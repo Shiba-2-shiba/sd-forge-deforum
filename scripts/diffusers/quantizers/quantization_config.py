@@ -467,7 +467,7 @@ class TorchAoConfig(QuantizationConfigMixin):
 
     Example:
         ```python
-        from diffusers import FluxTransformer2DModel, TorchAoConfig
+        from .. import FluxTransformer2DModel, TorchAoConfig
 
         quantization_config = TorchAoConfig("int8wo")
         transformer = FluxTransformer2DModel.from_pretrained(
