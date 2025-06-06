@@ -435,7 +435,7 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
 
         ```py
         >>> import torch
-        >>> from diffusers import UNet2DConditionModel
+        >>> from .. import UNet2DConditionModel
         >>> from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
 
         >>> model = UNet2DConditionModel.from_pretrained(
@@ -479,7 +479,7 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
             Using [`~models.ModelMixin.enable_layerwise_casting`]:
 
             ```python
-            >>> from diffusers import CogVideoXTransformer3DModel
+            >>> from .. import CogVideoXTransformer3DModel
 
             >>> transformer = CogVideoXTransformer3DModel.from_pretrained(
             ...     "THUDM/CogVideoX-5b", subfolder="transformer", torch_dtype=torch.bfloat16
@@ -557,7 +557,7 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
         Example:
 
             ```python
-            >>> from diffusers import CogVideoXTransformer3DModel
+            >>> from .. import CogVideoXTransformer3DModel
 
             >>> transformer = CogVideoXTransformer3DModel.from_pretrained(
             ...     "THUDM/CogVideoX-5b", subfolder="transformer", torch_dtype=torch.bfloat16
@@ -859,7 +859,7 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
         Example:
 
         ```py
-        from diffusers import UNet2DConditionModel
+       from .. import UNet2DConditionModel
 
         unet = UNet2DConditionModel.from_pretrained("runwayml/stable-diffusion-v1-5", subfolder="unet")
         ```
@@ -1641,7 +1641,7 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
         Example:
 
         ```py
-        from diffusers import UNet2DConditionModel
+        from .. import UNet2DConditionModel
 
         model_id = "runwayml/stable-diffusion-v1-5"
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet")
