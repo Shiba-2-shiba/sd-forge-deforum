@@ -5,10 +5,10 @@ from PIL import Image
 
 from modules import shared, sd_models
 
-from ..framepack.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
-from ..framepack.k_diffusion_hunyuan import sample_hunyuan
-from ..framepack.hunyuan import vae_encode, vae_decode, encode_prompt_conds
-from ..framepack.utils import resize_and_center_crop, save_bcthw_as_mp4
+from framepack.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
+from framepack.k_diffusion_hunyuan import sample_hunyuan
+from framepack.hunyuan import vae_encode, vae_decode, encode_prompt_conds
+from framepack.utils import resize_and_center_crop, save_bcthw_as_mp4
 
 F1_TRANSFORMER = None
 
