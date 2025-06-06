@@ -1,13 +1,14 @@
 import os
 import torch
+import numpy as np
 from PIL import Image
 
-from modules import shared
+from modules import shared, sd_models
 
-from framepack.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
-from framepack.k_diffusion_hunyuan import sample_hunyuan
-from framepack.hunyuan import vae_encode, vae_decode, encode_prompt_conds
-from framepack.utils import resize_and_center_crop, save_bcthw_as_mp4
+from ..framepack.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
+from ..framepack.k_diffusion_hunyuan import sample_hunyuan
+from ..framepack.hunyuan import vae_encode, vae_decode, encode_prompt_conds
+from ..framepack.utils import resize_and_center_crop, save_bcthw_as_mp4
 
 F1_TRANSFORMER = None
 
@@ -69,4 +70,3 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
     save_bcthw_as_mp4(final_video_frames, output_path, video_args.fps)
     print(f"FramePack F1 video saved to {output_path}")
-
