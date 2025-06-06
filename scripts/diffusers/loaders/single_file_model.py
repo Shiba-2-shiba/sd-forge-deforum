@@ -222,7 +222,7 @@ class FromOriginalModelMixin:
                 method. See example below for more information.
 
         ```py
-        >>> from diffusers import StableCascadeUNet
+        >>> from .. import StableCascadeUNet
 
         >>> ckpt_path = "https://huggingface.co/stabilityai/stable-cascade/blob/main/stage_b_lite.safetensors"
         >>> model = StableCascadeUNet.from_single_file(ckpt_path)
