@@ -511,7 +511,7 @@ def lazy_positional_encoding(t, repeats=None):
     if not isinstance(t, list):
         t = [t]
 
-    from diffusers.models.embeddings import get_timestep_embedding
+    from ..diffusers.models.embeddings import get_timestep_embedding
 
     te = torch.tensor(t)
     te = get_timestep_embedding(timesteps=te, embedding_dim=256, flip_sin_to_cos=True, downscale_freq_shift=0.0, scale=1.0)

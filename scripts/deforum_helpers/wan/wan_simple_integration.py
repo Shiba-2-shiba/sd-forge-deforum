@@ -1141,7 +1141,7 @@ class WanSimpleIntegration:
 
         if model_info['type'] == 'T2V': 
             try:
-                from diffusers import AutoPipelineForText2Video 
+                from ...diffusers import AutoPipelineForText2Video
                 
                 print_wan_info(f"Attempting to load {model_info['name']} using AutoPipelineForText2Video (diffusers)...")
                 get_vram_stats(f"Before AutoPipelineForText2Video for {model_info['name']}")
