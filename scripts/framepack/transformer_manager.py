@@ -3,9 +3,8 @@ import glob
 import torch
 import traceback
 from accelerate import init_empty_weights
-from diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
-from diffusers_helper.memory import DynamicSwapInstaller
-from locales.i18n_extended import translate
+from .models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
+from .memory import DynamicSwapInstaller
 
 class TransformerManager:
     """transformerモデルの状態管理を行うクラス
