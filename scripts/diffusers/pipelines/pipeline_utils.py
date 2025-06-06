@@ -683,7 +683,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
         Examples:
 
         ```py
-        >>> from diffusers import DiffusionPipeline
+        >>> from .. import DiffusionPipeline
 
         >>> # Download pipeline from huggingface.co and cache.
         >>> pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-text2im-large-256")
@@ -694,7 +694,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
         >>> pipeline = DiffusionPipeline.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5")
 
         >>> # Use a different scheduler
-        >>> from diffusers import LMSDiscreteScheduler
+        >>> from .. import LMSDiscreteScheduler
 
         >>> scheduler = LMSDiscreteScheduler.from_config(pipeline.scheduler.config)
         >>> pipeline.scheduler = scheduler
@@ -927,7 +927,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
             )
 
         # import it here to avoid circular import
-        from diffusers import pipelines
+        from .. import pipelines
 
         # 6. device map delegation
         final_device_map = None
@@ -1683,7 +1683,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
         Examples:
 
         ```py
-        >>> from diffusers import (
+        >>> from .. import (
         ...     StableDiffusionPipeline,
         ...     StableDiffusionImg2ImgPipeline,
         ...     StableDiffusionInpaintPipeline,
@@ -1758,7 +1758,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
 
         ```py
         >>> import torch
-        >>> from diffusers import DiffusionPipeline
+        >>> from .. import DiffusionPipeline
         >>> from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
 
         >>> pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-2-1", torch_dtype=torch.float16)
@@ -1821,7 +1821,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
 
         ```py
         >>> import torch
-        >>> from diffusers import StableDiffusionPipeline
+        >>> from .. import StableDiffusionPipeline
 
         >>> pipe = StableDiffusionPipeline.from_pretrained(
         ...     "stable-diffusion-v1-5/stable-diffusion-v1-5",
@@ -1869,7 +1869,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
         Examples:
 
         ```py
-        >>> from diffusers import StableDiffusionPipeline, StableDiffusionSAGPipeline
+        >>> from .. import StableDiffusionPipeline, StableDiffusionSAGPipeline
 
         >>> pipe = StableDiffusionPipeline.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5")
         >>> new_pipe = StableDiffusionSAGPipeline.from_pipe(pipe)
