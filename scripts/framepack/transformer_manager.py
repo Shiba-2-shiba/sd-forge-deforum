@@ -41,7 +41,7 @@ class TransformerManager:
 
         # 仮想デバイスへのtransformerのロード
         self._load_virtual_transformer()
-        print(translate("transformerを仮想デバイスにロードしました"))
+        print("transformerを仮想デバイスにロードしました")
         
     def set_next_settings(self, lora_paths=None, lora_scales=None, fp8_enabled=False, high_vram_mode=False, use_f1_model=None, lora_path=None, lora_scale=None, force_dict_split=False):
         """次回のロード時に使用する設定をセット（即時のリロードは行わない）
@@ -158,7 +158,7 @@ class TransformerManager:
         """transformerの状態を確認し、必要に応じてリロード"""
         if self._needs_reload():
             return self._reload_transformer()        
-        print(translate("ロード済みのtransformerを再度利用します"))
+        print("ロード済みのtransformerを再度利用します")
         return True
     
     def ensure_download_models(self):
