@@ -38,15 +38,17 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     print("Starting FramePack F1 rendering process...")
     model = load_f1_model(root)
 
-    init_image = Image.open(args.init_image).convert("RGB")
-    init_image = resize_and_center_crop(init_image, (args.W, args.H))
+    init_image = np.array(Image.open(args.init_image).convert("RGB"))
+    init_image = resize_and_center_crop(init_image, args.W, args.H)
 
-    start_latent = vae_encode(init_image, shared.sd_model.first_stage_model, root.device)
+    start_latent = vae_encode(init_image, shared.sd_model.first_stage_model)
 
     llama_vec, clip_l_pooler = encode_prompt_conds(
-        tokenizer=shared.sd_model.cond_stage_model.wrapped.tokenizer,
-        text_encoder=shared.sd_model.cond_stage_model.wrapped.transformer,
-        text=anim_args.animation_prompts
+        anim_args.animation_prompts,
+        shared.sd_model.cond_stage_model.wrapped.transformer,
+        getattr(shared.sd_model.cond_stage_model.wrapped, "transformer_2", shared.sd_model.cond_stage_model.wrapped.transformer),
+        shared.sd_model.cond_stage_model.wrapped.tokenizer,
+        getattr(shared.sd_model.cond_stage_model.wrapped, "tokenizer_2", shared.sd_model.cond_stage_model.wrapped.tokenizer),
     )
 
     history_latents = start_latent
