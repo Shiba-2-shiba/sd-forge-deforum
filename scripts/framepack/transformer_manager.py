@@ -171,7 +171,7 @@ class TransformerManager:
         model_path = self.MODEL_PATH_F1 if self.next_state.get('use_f1_model', False) else self.MODEL_PATH_NORMAL
 
         with init_empty_weights():
-            config = HunyuanVideoTransformer3DModelPacked.load_config(model_path)
+            config = HunyuanVideoTransformer3DModelPacked.load_config(model_path, local_files_only=True)
             self.transformer = HunyuanVideoTransformer3DModelPacked.from_config(config, torch_dtype=torch.bfloat16)
         self.transformer.to(torch.bfloat16)  # 明示的に型を指定しないと transformer.dtype が float32 を返す
 
