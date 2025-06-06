@@ -3,7 +3,7 @@ import glob
 import torch
 import traceback
 from accelerate import init_empty_weights
-from .models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
+from .hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
 from .memory import DynamicSwapInstaller
 
 class TransformerManager:
