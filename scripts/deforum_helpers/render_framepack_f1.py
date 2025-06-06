@@ -70,4 +70,3 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
     save_bcthw_as_mp4(final_video_frames, output_path, video_args.fps)
     print(f"FramePack F1 video saved to {output_path}")
-
