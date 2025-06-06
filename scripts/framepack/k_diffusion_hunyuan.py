@@ -1,8 +1,8 @@
 import torch
 import math
 
-from diffusers_helper.k_diffusion.uni_pc_fm import sample_unipc
-from diffusers_helper.k_diffusion.wrapper import fm_wrapper
+from .uni_pc_fm import sample_unipc
+from .wrapper import fm_wrapper
 from .utils import repeat_to_batch_size
 
 
