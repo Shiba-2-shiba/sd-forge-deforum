@@ -14,8 +14,8 @@ from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps, PixArtAlphaTextProjection
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.modeling_utils import ModelMixin
-from diffusers_helper.dit_common import LayerNorm
-from diffusers_helper.utils import zero_module
+from .dit_common import LayerNorm
+from .utils import zero_module
 
 
 enabled_backends = []
