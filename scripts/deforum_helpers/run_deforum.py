@@ -78,7 +78,7 @@ def run_deforum(*args):
         args_dict['self'] = None
         args_dict['p'] = p
         try:
-            args_loaded_ok, root, args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, wan_args = process_args(args_dict, i)
+            args_loaded_ok, root, args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, wan_args, framepack_f1_args = process_args(args_dict, i)
         except Exception as e:
             JobStatusTracker().fail_job(job_id, error_type="TERMINAL", message="Invalid arguments.")
             print("\n*START OF TRACEBACK*")
@@ -128,6 +128,9 @@ def run_deforum(*args):
                 render_input_video(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, root)#TODO: prettify code
             elif anim_args.animation_mode == 'Interpolation':
                 render_interpolation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, root)
+            elif anim_args.animation_mode == 'FramePack F1':
+                from .render_framepack_f1 import render_animation_f1
+                render_animation_f1(args, anim_args, video_args, framepack_f1_args, root)
             elif anim_args.animation_mode == 'Wan Video':
                 # Use direct Wan integration
                 try:

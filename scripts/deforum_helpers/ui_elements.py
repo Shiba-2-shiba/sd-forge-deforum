@@ -112,7 +112,7 @@ def get_tab_run(d, da):
     return {k: v for k, v in {**locals(), **vars()}.items()}
 
 
-def get_tab_keyframes(d, da, dloopArgs):
+def get_tab_keyframes(d, da, dloopArgs, df1):
     components = {}
     with gr.TabItem(f"{emoji_utils.key()} Keyframes"):  # TODO make a some sort of the original dictionary parsing
         with FormRow():
@@ -319,8 +319,13 @@ def get_tab_keyframes(d, da, dloopArgs):
                         fov_schedule = create_gr_elem(da.fov_schedule)
                     with FormRow() as depth_warp_row_6:
                         near_schedule = create_gr_elem(da.near_schedule)
-                    with FormRow() as depth_warp_row_7:
-                        far_schedule = create_gr_elem(da.far_schedule)
+                with FormRow() as depth_warp_row_7:
+                    far_schedule = create_gr_elem(da.far_schedule)
+
+        with gr.Accordion('FramePack F1 Settings', open=True, visible=False) as framepack_f1_accordion:
+            f1_image_strength = create_row(df1.f1_image_strength)
+            f1_generation_latent_size = create_row(df1.f1_generation_latent_size)
+            f1_trim_start_latent_size = create_row(df1.f1_trim_start_latent_size)
 
     return {k: v for k, v in {**locals(), **vars()}.items()}
 

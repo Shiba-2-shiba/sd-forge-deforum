@@ -64,7 +64,7 @@ def DeforumAnimArgs():
         "animation_mode": {
             "label": "Animation mode",
             "type": "radio",
-            "choices": ['2D', '3D', 'Video Input', 'Interpolation', 'Wan Video'],
+            "choices": ['2D', '3D', 'Video Input', 'Interpolation', 'Wan Video', 'FramePack F1'],
             "value": "2D",
             "info": "control animation mode, will hide non relevant params upon change"
         },
@@ -1464,12 +1464,46 @@ def DeforumOutputArgs():
     }
 
 
+def FramePackF1Args():
+    """Arguments specific to FramePack F1 mode"""
+    return {
+        "f1_image_strength": {
+            "label": "Image Strength (F1 Mode)",
+            "type": "slider",
+            "minimum": 1.0,
+            "maximum": 1.02,
+            "step": 0.001,
+            "value": 1.0,
+            "info": "Influence of the initial image. Higher values stick closer to the start image. (1.0 = 100%)"
+        },
+        "f1_generation_latent_size": {
+            "label": "Generation Latent Size (F1 Mode)",
+            "type": "slider",
+            "minimum": 1,
+            "maximum": 12,
+            "step": 1,
+            "value": 9,
+            "info": "Frames to generate to connect to the initial image. (Recommended: 6-9)"
+        },
+        "f1_trim_start_latent_size": {
+            "label": "Trim Start Frames (F1 Mode)",
+            "type": "slider",
+            "minimum": 0,
+            "maximum": 5,
+            "step": 1,
+            "value": 0,
+            "info": "Frames to trim from the beginning of the video (if noise is present)."
+        }
+    }
+
+
 def get_component_names():
     # Re-enable Wan components (UI level, imports still isolated)
     return ['override_settings_with_file', 'custom_settings_file', *DeforumAnimArgs().keys(), 'animation_prompts',
             'animation_prompts_positive', 'animation_prompts_negative',
             *DeforumArgs().keys(), *DeforumOutputArgs().keys(), *ParseqArgs().keys(), *LoopArgs().keys(),
-            *controlnet_component_names(), *FreeUArgs().keys(), *KohyaHRFixArgs().keys(), *WanArgs().keys()]
+            *controlnet_component_names(), *FreeUArgs().keys(), *KohyaHRFixArgs().keys(), *WanArgs().keys(),
+            *FramePackF1Args().keys()]
 
 
 def get_settings_component_names():
@@ -1495,6 +1529,7 @@ def process_args(args_dict_main, run_id):
     freeu_args = SimpleNamespace(**{name: args_dict_main[name] for name in FreeUArgs()})
     kohya_hrfix_args = SimpleNamespace(**{name: args_dict_main[name] for name in KohyaHRFixArgs()})
     wan_args = SimpleNamespace(**{name: args_dict_main[name] for name in WanArgs()})
+    framepack_f1_args = SimpleNamespace(**{name: args_dict_main[name] for name in FramePackF1Args()})
     controlnet_args = SimpleNamespace(**{name: args_dict_main[name] for name in controlnet_component_names()})
 
     root.animation_prompts = json.loads(args_dict_main['animation_prompts'])
@@ -1545,4 +1580,4 @@ def process_args(args_dict_main, run_id):
     default_img = default_img.resize((args.W, args.H))
     root.default_img = default_img
 
-    return args_loaded_ok, root, args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, wan_args
+    return args_loaded_ok, root, args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, wan_args, framepack_f1_args
