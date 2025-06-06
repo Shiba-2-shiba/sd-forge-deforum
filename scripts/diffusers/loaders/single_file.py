@@ -322,7 +322,7 @@ class FromSingleFileMixin:
         Examples:
 
         ```py
-        >>> from diffusers import StableDiffusionPipeline
+        >>> from .. import StableDiffusionPipeline
 
         >>> # Download pipeline from huggingface.co and cache.
         >>> pipeline = StableDiffusionPipeline.from_single_file(
@@ -480,7 +480,7 @@ class FromSingleFileMixin:
         init_kwargs = {k: init_dict.pop(k) for k in optional_kwargs if k in init_dict}
         init_kwargs = {**init_kwargs, **passed_pipe_kwargs}
 
-        from diffusers import pipelines
+        from .. import pipelines
 
         # remove `null` components
         def load_module(name, value):
