@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Union
 
-from diffusers.utils.import_utils import is_optimum_quanto_version
+from ...utils.import_utils import is_optimum_quanto_version
 
 from ...utils import (
     get_module_from_name,
