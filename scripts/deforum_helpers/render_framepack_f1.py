@@ -7,16 +7,16 @@ from PIL import Image
 
 # WebUIの共有オブジェクトとヘルパー関数をインポート
 from modules import shared
-# 修正点: 'gpu'を直接インポートする代わりに、'device'を'gpu'としてインポートします
+# 修正点1: 'gpu'を直接インポートする代わりに、'device'を'gpu'としてインポート
 from modules.devices import cpu, device as gpu
 
 # -------------------------------------------------------------------------
 # FramePack F1専用のヘルパーとマネージャークラスをインポート
-# これらのファイルは 'scripts/framepack/' ディレクトリに配置されている必要があります。
+# 修正点2: 'scripts'からの絶対パスインポートに変更
 # -------------------------------------------------------------------------
 
 # メモリ管理ユーティリティ
-from .framepack.memory import (
+from scripts.framepack.memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
     model_on_device,
@@ -24,17 +24,17 @@ from .framepack.memory import (
 )
 
 # モデル管理クラス (シングルトンとして使用)
-from .framepack.transformer_manager import TransformerManager
-from .framepack.text_encoder_manager import TextEncoderManager
+from scripts.framepack.transformer_manager import TransformerManager
+from scripts.framepack.text_encoder_manager import TextEncoderManager
 
 # VAEとトークナイザーをロードするためのインポート
 from diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer
 
 # FramePackのコア機能
-from .framepack.k_diffusion_hunyuan import sample_hunyuan
-from .framepack.hunyuan import vae_encode, vae_decode, encode_prompt_conds
-from .framepack.utils import resize_and_center_crop, save_bcthw_as_mp4
+from scripts.framepack.k_diffusion_hunyuan import sample_hunyuan
+from scripts.framepack.hunyuan import vae_encode, vae_decode, encode_prompt_conds
+from scripts.framepack.utils import resize_and_center_crop, save_bcthw_as_mp4
 
 
 # -------------------------------------------------------------------------
@@ -174,7 +174,8 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
 
         # F1のテキストエンコーダーを取得・使用してプロンプトをエンコード
         print("[FramePack F1] Step 3: Encoding prompts with F1 Text Encoders...")
-        f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders() # ここでロードが発生する可能性がある
+        managers["text_encoder"].ensure_text_encoder_state() # ロードを保証
+        f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         with model_on_device(f1_text_encoder, root.device), model_on_device(f1_text_encoder_2, root.device):
             llama_vec, clip_l_pooler = encode_prompt_conds(
                 anim_args.animation_prompts,
@@ -241,14 +242,19 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
         # 処理の終了、またはエラー発生時に必ず実行される後処理
         # -------------------------------------------------------------
         print("[FramePack F1] Step 6: Finalizing and restoring WebUI state...")
-        # F1モデル群を明示的に解放（ただし、マネージャはインスタンスを保持）
-        if 'f1_transformer' in locals() and f1_transformer is not None:
+        # F1モデル群を明示的にCPUに解放
+        f1_transformer = managers.get("transformer").get_transformer()
+        if f1_transformer is not None:
              f1_transformer.to(cpu)
-        if 'f1_vae' in locals() and f1_vae is not None:
+
+        f1_vae = managers.get("vae").get()
+        if f1_vae is not None:
              f1_vae.to(cpu)
-        if 'f1_text_encoder' in locals() and f1_text_encoder is not None:
+        
+        f1_text_encoder, f1_text_encoder_2 = managers.get("text_encoder").get_text_encoders()
+        if f1_text_encoder is not None:
              f1_text_encoder.to(cpu)
-        if 'f1_text_encoder_2' in locals() and f1_text_encoder_2 is not None:
+        if f1_text_encoder_2 is not None:
              f1_text_encoder_2.to(cpu)
         
         gc.collect()
