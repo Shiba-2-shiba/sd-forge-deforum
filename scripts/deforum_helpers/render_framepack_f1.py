@@ -5,6 +5,23 @@ from PIL import Image
 
 from modules import shared
 
+
+def _get_unet():
+    """Return UNet from the currently loaded Stable Diffusion model.
+
+    Handles both SD 1.x/2.x and SDXL models which expose the UNet in
+    different attributes. Returns ``None`` if the UNet cannot be found."""
+
+    if hasattr(shared.sd_model, "unet"):
+        return shared.sd_model.unet
+
+    # SDXL stores UNet under ``model.diffusion_model``
+    model_attr = getattr(shared.sd_model, "model", None)
+    if model_attr is not None and hasattr(model_attr, "diffusion_model"):
+        return model_attr.diffusion_model
+
+    return None
+
 from scripts.framepack.memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
@@ -60,7 +77,7 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     """Render video with FramePack F1 while carefully managing GPU memory."""
     print("Starting FramePack F1 rendering process with memory management...")
 
-    unet = shared.sd_model.unet
+    unet = _get_unet()
     vae = shared.sd_model.first_stage_model
 
     # 1. Encode the initial image with the VAE on GPU
@@ -78,7 +95,8 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     )
 
     # Free memory used by UNet before loading F1
-    offload_model_from_device_for_memory_preservation(unet, root.device)
+    if unet is not None:
+        offload_model_from_device_for_memory_preservation(unet, root.device)
 
     model = load_f1_model(root)
     history_latents = start_latent
@@ -113,4 +131,5 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     print(f"FramePack F1 video saved to {output_path}")
 
     # Restore UNet for any further processing
-    move_model_to_device_with_memory_preservation(unet, root.device)
+    if unet is not None:
+        move_model_to_device_with_memory_preservation(unet, root.device)
