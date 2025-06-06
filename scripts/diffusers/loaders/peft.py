@@ -507,7 +507,7 @@ class PeftAdapterMixin:
         Example:
 
         ```py
-        from diffusers import AutoPipelineForText2Image
+        from .. import AutoPipelineForText2Image
         import torch
 
         pipeline = AutoPipelineForText2Image.from_pretrained(
@@ -756,7 +756,7 @@ class PeftAdapterMixin:
         Example:
 
         ```py
-        from diffusers import AutoPipelineForText2Image
+        from .. import AutoPipelineForText2Image
         import torch
 
         pipeline = AutoPipelineForText2Image.from_pretrained(
@@ -779,7 +779,7 @@ class PeftAdapterMixin:
         Example:
 
         ```py
-        from diffusers import AutoPipelineForText2Image
+        from .. import AutoPipelineForText2Image
         import torch
 
         pipeline = AutoPipelineForText2Image.from_pretrained(
@@ -806,7 +806,7 @@ class PeftAdapterMixin:
         Example:
 
         ```py
-        from diffusers import AutoPipelineForText2Image
+        from .. import AutoPipelineForText2Image
         import torch
 
         pipeline = AutoPipelineForText2Image.from_pretrained(
