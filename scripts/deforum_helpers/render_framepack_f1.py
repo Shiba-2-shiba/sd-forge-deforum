@@ -1,9 +1,8 @@
 import os
 import torch
-import numpy as np
 from PIL import Image
 
-from modules import shared, sd_models
+from modules import shared
 
 from framepack.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
 from framepack.k_diffusion_hunyuan import sample_hunyuan
