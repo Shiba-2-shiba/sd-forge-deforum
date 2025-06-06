@@ -44,8 +44,8 @@ EXAMPLE_DOC_STRING = """
     Examples:
         ```python
         >>> import torch
-        >>> from diffusers import HunyuanVideoPipeline, HunyuanVideoTransformer3DModel
-        >>> from diffusers.utils import export_to_video
+        >>> from ... import HunyuanVideoPipeline, HunyuanVideoTransformer3DModel
+        >>> from from ...utils import export_to_video
 
         >>> model_id = "hunyuanvideo-community/HunyuanVideo"
         >>> transformer = HunyuanVideoTransformer3DModel.from_pretrained(
