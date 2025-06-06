@@ -132,3 +132,16 @@ def load_model_as_complete(model, target_device, unload=True):
 
     gpu_complete_modules.append(model)
     return
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def model_on_device(model, target_device, preserved_memory_gb=0):
+    """Context manager to temporarily move a model to a device and restore it."""
+    move_model_to_device_with_memory_preservation(model, target_device, preserved_memory_gb)
+    try:
+        yield model
+    finally:
+        offload_model_from_device_for_memory_preservation(model, target_device, preserved_memory_gb)
