@@ -520,7 +520,7 @@ class PushToHubMixin:
         Examples:
 
         ```python
-        from diffusers import UNet2DConditionModel
+        from ..  import UNet2DConditionModel
 
         unet = UNet2DConditionModel.from_pretrained("stabilityai/stable-diffusion-2", subfolder="unet")
 
