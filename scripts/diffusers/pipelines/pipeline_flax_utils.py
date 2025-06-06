@@ -117,7 +117,7 @@ class FlaxDiffusionPipeline(ConfigMixin, PushToHubMixin):
 
     def register_modules(self, **kwargs):
         # import it here to avoid circular import
-        from diffusers import pipelines
+        from .. import pipelines
 
         for name, module in kwargs.items():
             if module is None:
@@ -286,7 +286,7 @@ class FlaxDiffusionPipeline(ConfigMixin, PushToHubMixin):
         Examples:
 
         ```py
-        >>> from diffusers import FlaxDiffusionPipeline
+        >>> from .. import FlaxDiffusionPipeline
 
         >>> # Download pipeline from huggingface.co and cache.
         >>> # Requires to be logged in to Hugging Face hub,
@@ -298,7 +298,7 @@ class FlaxDiffusionPipeline(ConfigMixin, PushToHubMixin):
         ... )
 
         >>> # Download pipeline, but use a different scheduler
-        >>> from diffusers import FlaxDPMSolverMultistepScheduler
+        >>> from .. import FlaxDPMSolverMultistepScheduler
 
         >>> model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
         >>> dpmpp, dpmpp_state = FlaxDPMSolverMultistepScheduler.from_pretrained(
@@ -417,7 +417,7 @@ class FlaxDiffusionPipeline(ConfigMixin, PushToHubMixin):
         params = {}
 
         # import it here to avoid circular import
-        from diffusers import pipelines
+        from .. import pipelines
 
         # 3. Load each module in the pipeline
         for name, (library_name, class_name) in init_dict.items():
@@ -552,7 +552,7 @@ class FlaxDiffusionPipeline(ConfigMixin, PushToHubMixin):
         Examples:
 
         ```py
-        >>> from diffusers import (
+        >>> from .. import (
         ...     FlaxStableDiffusionPipeline,
         ...     FlaxStableDiffusionImg2ImgPipeline,
         ... )
