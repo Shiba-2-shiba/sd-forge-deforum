@@ -7,12 +7,10 @@ from PIL import Image
 
 # WebUIの共有オブジェクトとヘルパー関数をインポート
 from modules import shared
-# 修正点1: 'gpu'を直接インポートする代わりに、'device'を'gpu'としてインポート
 from modules.devices import cpu, device as gpu
 
 # -------------------------------------------------------------------------
 # FramePack F1専用のヘルパーとマネージャークラスをインポート
-# 修正点2: 'scripts'からの絶対パスインポートに変更
 # -------------------------------------------------------------------------
 
 # メモリ管理ユーティリティ
@@ -28,7 +26,7 @@ from scripts.framepack.transformer_manager import TransformerManager
 from scripts.framepack.text_encoder_manager import TextEncoderManager
 
 # VAEとトークナイザーをロードするためのインポート
-from scripts.diffusers.models.autoencoders.autoencoder_kl_hunyuan_video import AutoencoderKLHunyuanVideo
+from diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer
 
 # FramePackのコア機能
@@ -67,8 +65,6 @@ def _initialize_managers():
         _F1_MANAGERS["transformer"] = TransformerManager(device=gpu, high_vram_mode=high_vram, use_f1_model=True)
         _F1_MANAGERS["text_encoder"] = TextEncoderManager(device=gpu, high_vram_mode=high_vram)
         
-        # VAEとトークナイザーも同様に管理
-        # このスクリプトでは、単純なクラスの属性として保持
         class VaeManager:
             def __init__(self, device, high_vram):
                 self.model = None
@@ -136,14 +132,9 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     """
     print("--- [FramePack F1] Start Rendering (Self-Contained Mode) ---")
 
-    # シングルトンマネージャを初期化・取得
     managers = _initialize_managers()
-
-    # WebUIの既存モデルコンポーネントを取得
     sdxl_components = _get_sdxl_components(shared.sd_model)
     
-    # 既存モデルをVRAMから退避させ、F1モデルの実行環境を確保する
-    # try...finallyブロックで、処理中にエラーが発生しても必ず元の状態に復元する
     try:
         print("[FramePack F1] Step 1: Offloading existing WebUI model from VRAM...")
         if sdxl_components["unet"]:
@@ -156,15 +147,10 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
         torch.cuda.empty_cache()
         print("[FramePack F1] Existing model offloaded successfully.")
 
-        # -------------------------------------------------------------
-        # ここからFramePack F1専用モデルを使用した処理
-        # -------------------------------------------------------------
-
         # F1のVAEとトークナイザーを取得
         f1_vae = managers["vae"].get()
         f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get()
 
-        # F1のVAEを使用して初期画像をエンコード
         print("[FramePack F1] Step 2: Encoding initial image with F1 VAE...")
         with model_on_device(f1_vae, root.device):
             init_image = np.array(Image.open(args.init_image).convert("RGB"))
@@ -172,9 +158,8 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
             start_latent = vae_encode(init_image, f1_vae)
         print("[FramePack F1] Initial image encoded.")
 
-        # F1のテキストエンコーダーを取得・使用してプロンプトをエンコード
         print("[FramePack F1] Step 3: Encoding prompts with F1 Text Encoders...")
-        managers["text_encoder"].ensure_text_encoder_state() # ロードを保証
+        managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         with model_on_device(f1_text_encoder, root.device), model_on_device(f1_text_encoder_2, root.device):
             llama_vec, clip_l_pooler = encode_prompt_conds(
@@ -184,14 +169,12 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
                 f1_tokenizer,
                 f1_tokenizer_2,
             )
-        # 使用後すぐにCPUに戻してVRAMを確保
         f1_text_encoder.to(cpu)
         f1_text_encoder_2.to(cpu)
         print("[FramePack F1] Prompts encoded.")
         
-        # F1のTransformerを取得して動画を生成
         print("[FramePack F1] Step 4: Generating video frames with F1 Transformer...")
-        managers["transformer"].ensure_transformer_state() # LoRA設定などを反映
+        managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
         history_latents = start_latent.clone()
         total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
@@ -208,7 +191,6 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
                     print("[FramePack F1] Generation interrupted by user.")
                     break
 
-                # strengthとstepsはDeforumのUIから渡される引数を使用
                 generated_latents = sample_hunyuan(
                     transformer=f1_transformer,
                     initial_latent=history_latents[:, :, -1:],
@@ -218,17 +200,14 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
                     clip_l_pooler=clip_l_pooler,
                 )
                 history_latents = torch.cat([history_latents, generated_latents], dim=2)
-                # Note: F1モデルは順方向で生成するため .flip は不要
         
         print(f"[FramePack F1] Video frames generated. Total latents shape: {history_latents.shape}")
 
-        # F1のVAEで最終的な動画フレームをデコード
         print("[FramePack F1] Step 5: Decoding final video with F1 VAE...")
         with model_on_device(f1_vae, root.device):
             final_video_frames = vae_decode(history_latents, f1_vae)
         print("[FramePack F1] Final video decoded.")
 
-        # 動画をファイルに保存
         output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
         save_bcthw_as_mp4(final_video_frames, output_path, fps=video_args.fps)
         print(f"[FramePack F1] Video saved to {output_path}")
@@ -238,29 +217,36 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
         import traceback
         traceback.print_exc()
     finally:
-        # -------------------------------------------------------------
-        # 処理の終了、またはエラー発生時に必ず実行される後処理
-        # -------------------------------------------------------------
         print("[FramePack F1] Step 6: Finalizing and restoring WebUI state...")
-        # F1モデル群を明示的にCPUに解放
+        
+        # -------------------------------------------------------------
+        # 修正点: モデルが「メタ」デバイス上にないことを確認してからCPUに移動する
+        # これにより、モデルの重みがロードされる前にエラーで処理が終了した場合の
+        # "Cannot copy out of meta tensor" エラーを防ぎます。
+        # -------------------------------------------------------------
+        
+        # F1 Transformerを解放
         f1_transformer = managers.get("transformer").get_transformer()
-        if f1_transformer is not None:
+        if f1_transformer is not None and next(f1_transformer.parameters()).device.type != 'meta':
              f1_transformer.to(cpu)
 
+        # F1 VAEを解放
         f1_vae = managers.get("vae").get()
-        if f1_vae is not None:
+        if f1_vae is not None and next(f1_vae.parameters()).device.type != 'meta':
              f1_vae.to(cpu)
         
+        # F1 Text Encoderを解放
         f1_text_encoder, f1_text_encoder_2 = managers.get("text_encoder").get_text_encoders()
-        if f1_text_encoder is not None:
+        if f1_text_encoder is not None and next(f1_text_encoder.parameters()).device.type != 'meta':
              f1_text_encoder.to(cpu)
-        if f1_text_encoder_2 is not None:
+        if f1_text_encoder_2 is not None and next(f1_text_encoder_2.parameters()).device.type != 'meta':
              f1_text_encoder_2.to(cpu)
         
         gc.collect()
         torch.cuda.empty_cache()
 
         # WebUIの元のモデルをVRAMに戻す
+        print("[FramePack F1] Restoring original WebUI models to VRAM...")
         if sdxl_components["unet"]:
             move_model_to_device_with_memory_preservation(sdxl_components["unet"], root.device)
         if sdxl_components["vae"]:
