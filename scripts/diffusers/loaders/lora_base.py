@@ -557,7 +557,7 @@ class LoraBaseMixin:
         Example:
 
         ```py
-        from diffusers import DiffusionPipeline
+        from ..  import DiffusionPipeline
         import torch
 
         pipeline = DiffusionPipeline.from_pretrained(
@@ -809,7 +809,7 @@ class LoraBaseMixin:
         Example:
 
         ```python
-        from diffusers import DiffusionPipeline
+        from ..  import DiffusionPipeline
 
         pipeline = DiffusionPipeline.from_pretrained(
             "stabilityai/stable-diffusion-xl-base-1.0",
