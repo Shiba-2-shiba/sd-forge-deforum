@@ -7,7 +7,8 @@ from PIL import Image
 
 # WebUIの共有オブジェクトとヘルパー関数をインポート
 from modules import shared
-from modules.devices import cpu, gpu
+# 修正点: 'gpu'を直接インポートする代わりに、'device'を'gpu'としてインポートします
+from modules.devices import cpu, device as gpu
 
 # -------------------------------------------------------------------------
 # FramePack F1専用のヘルパーとマネージャークラスをインポート
@@ -189,6 +190,7 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
         
         # F1のTransformerを取得して動画を生成
         print("[FramePack F1] Step 4: Generating video frames with F1 Transformer...")
+        managers["transformer"].ensure_transformer_state() # LoRA設定などを反映
         f1_transformer = managers["transformer"].get_transformer()
         history_latents = start_latent.clone()
         total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
@@ -215,7 +217,7 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
                     clip_l_pooler=clip_l_pooler,
                 )
                 history_latents = torch.cat([history_latents, generated_latents], dim=2)
-                # Note: F1モデルは逆順で生成しないため .flip は不要
+                # Note: F1モデルは順方向で生成するため .flip は不要
         
         print(f"[FramePack F1] Video frames generated. Total latents shape: {history_latents.shape}")
 
@@ -261,4 +263,3 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
             move_model_to_device_with_memory_preservation(sdxl_components["text_encoders"], root.device)
             
         print("--- [FramePack F1] Process Finished. WebUI state restored. ---")
-
