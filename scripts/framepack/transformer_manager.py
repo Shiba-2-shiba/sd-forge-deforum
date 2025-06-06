@@ -203,18 +203,18 @@ class TransformerManager:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-            print(translate("transformerをリロードします..."))
-            print(translate("適用するtransformer設定:"))
+            print("transformerをリロードします...")
+            print("適用するtransformer設定:")
             lora_paths = self.next_state.get('lora_paths', []) or []
             lora_scales = self.next_state.get('lora_scales', []) or []
             if lora_paths:
                 for i, (path, scale) in enumerate(zip(lora_paths, lora_scales)):
-                    print(translate("  - LoRA {0}: {1} (スケール: {2})").format(i+1, os.path.basename(path), scale))
+                    print("  - LoRA {0}: {1} (スケール: {2})").format(i+1, os.path.basename(path), scale)
             else:
-                print(translate("  - LoRA: None"))
-            print(translate("  - FP8 optimization: {0}").format(self.next_state['fp8_enabled']))
-            print(translate("  - Force dict split: {0}").format(self.next_state.get('force_dict_split', False)))
-            print(translate("  - High-VRAM mode: {0}").format(self.next_state['high_vram']))
+                print("  - LoRA: None")
+            print("  - FP8 optimization: {0}").format(self.next_state['fp8_enabled'])
+            print("  - Force dict split: {0}").format(self.next_state.get('force_dict_split', False))
+            print("  - High-VRAM mode: {0}").format(self.next_state['high_vram'])
 
             # モードに応じたモデルパスを選択
             model_path = self._get_model_path()
@@ -230,7 +230,7 @@ class TransformerManager:
                     torch_dtype=torch.bfloat16
                 )
 
-                print(translate("使用モデル: {0}").format(model_path))
+                print("使用モデル: {0}").format(model_path)
                 self.transformer.to(dtype=torch.bfloat16)
 
             else:
@@ -242,14 +242,14 @@ class TransformerManager:
                     has_e4m3, has_e5m2, has_scaled_mm = check_fp8_support()
                     
                     if not has_e4m3:
-                        print(translate("FP8最適化が有効化されていますが、サポートされていません。PyTorch 2.1以上が必要です。"))
+                        print("FP8最適化が有効化されていますが、サポートされていません。PyTorch 2.1以上が必要です。")
                         self.next_state['fp8_enabled'] = False
 
                 # 状態辞書のファイルを取得
                 model_files = self._find_model_files(model_path)
                 if len(model_files) == 0:
                     # モデルファイルが見つからない場合はエラーをスロー （アプリ起動時にdownload&preloadしているはず）
-                    raise FileNotFoundError(translate("モデルファイルが見つかりませんでした。"))
+                    raise FileNotFoundError("モデルファイルが見つかりませんでした。")
 
                 # LoRAの適用および重みのFP8最適化
                 lora_paths = self.next_state.get('lora_paths', []) or []
@@ -266,9 +266,9 @@ class TransformerManager:
                     )
                     if lora_paths:
                         if len(lora_paths) == 1:
-                            print(translate("LoRAを直接適用しました (スケール: {0})").format(lora_scales[0]))
+                            print("LoRAを直接適用しました (スケール: {0})").format(lora_scales[0])
                         else:
-                            print(translate("複数のLoRAを直接適用しました:"))
+                            print("複数のLoRAを直接適用しました:")
                             for i, (path, scale) in enumerate(zip(lora_paths, lora_scales)):
                                 print(f"  - LoRA {i+1}: {os.path.basename(path)} (スケール: {scale})")
                     
@@ -276,17 +276,17 @@ class TransformerManager:
                     # try:
                     #     from lora_utils.lora_check_helper import check_lora_applied
                     #     has_lora, source = check_lora_applied(self.transformer)
-                    #     print(translate("LoRA適用状況: {0}, 適用方法: {1}").format(has_lora, source))
+                    #     print("LoRA適用状況: {0}, 適用方法: {1}").format(has_lora, source)
                     # except Exception as diagnostic_error:
-                    #     print(translate("LoRA診断エラー: {0}").format(diagnostic_error))
+                    #     print("LoRA診断エラー: {0}").format(diagnostic_error)
 
                 except Exception as e:
-                    print(translate("LoRA適用エラー: {0}").format(e))
+                    print("LoRA適用エラー: {0}").format(e)
                     traceback.print_exc()
                     raise e
                         
                 # FP8最適化の適用前に、transformerを仮想デバイスにロードし、monkey patchを当てられるようにする
-                print(translate("使用モデル: {0}").format(model_path))
+                print("使用モデル: {0}").format(model_path)
                 self._load_virtual_transformer()
 
                 # FP8最適化の適用
@@ -295,19 +295,19 @@ class TransformerManager:
                         from lora_utils.fp8_optimization_utils import apply_fp8_monkey_patch
 
                         # モンキーパッチの適用
-                        print(translate("FP8モンキーパッチを適用しています..."))
+                        print("FP8モンキーパッチを適用しています...")
                         # use_scaled_mm = has_scaled_mm and has_e5m2
                         use_scaled_mm = False  # 品質が大幅に劣化するので無効化
                         apply_fp8_monkey_patch(self.transformer, state_dict, use_scaled_mm=use_scaled_mm)
                         
-                        print(translate("FP8最適化が適用されました"))
+                        print("FP8最適化が適用されました")
                     except Exception as e:
-                        print(translate("FP8最適化エラー: {0}").format(e))
+                        print("FP8最適化エラー: {0}").format(e)
                         traceback.print_exc()
                         raise e
                 
                 # 必要に応じてLoRA、FP8最適化が施された状態辞書を読み込み。assign=Trueで仮想デバイスのテンソルを置換
-                print(translate("状態辞書を読み込んでいます..."))
+                print("状態辞書を読み込んでいます...")
                 self.transformer.load_state_dict(state_dict, assign=True, strict=True)
 
                 # 読み込み後に一時的な状態辞書をメモリから解放
@@ -317,10 +317,10 @@ class TransformerManager:
                 # 参照を削除する前に状態辞書のサイズを取得
                 try:
                     state_dict_size = sum(param.numel() * param.element_size() for param in state_dict.values() if hasattr(param, 'numel'))
-                    print(translate("解放される状態辞書サイズ: {0:.2f} GB").format(state_dict_size / (1024**3)))
+                    print("解放される状態辞書サイズ: {0:.2f} GB").format(state_dict_size / (1024**3))
                 except:
                     # 状態辞書のサイズ計算に失敗してもプログラムの実行は継続
-                    print(translate("状態辞書のサイズ計算に失敗しました"))
+                    print("状態辞書のサイズ計算に失敗しました")
 
                 # ここで参照を明示的に削除
                 # 注: メインの参照は本メソッド終了時に自動解放されるが、
@@ -334,7 +334,7 @@ class TransformerManager:
             self.transformer.cpu()
             self.transformer.eval()
             self.transformer.high_quality_fp32_output_for_inference = True
-            print(translate("transformer.high_quality_fp32_output_for_inference = True"))
+            print("transformer.high_quality_fp32_output_for_inference = True")
             # self.transformer.to(dtype=torch.bfloat16) # fp8が解除されてしまうのでコメントアウト
             self.transformer.requires_grad_(False)
             
@@ -349,7 +349,7 @@ class TransformerManager:
             if 'temp_dict' in locals():
                 del temp_dict
             if 'state_dict' in locals():
-                print(translate("大きな状態辞書参照を解放します"))
+                print("大きな状態辞書参照を解放します")
                 # 参照カウントを減らす
                 del state_dict
                 # 明示的なメモリクリーンアップ
@@ -367,16 +367,16 @@ class TransformerManager:
                 import psutil
                 process = psutil.Process()
                 ram_usage = process.memory_info().rss / (1024 * 1024 * 1024)  # GB単位
-                print(translate("現在のRAM使用量: {0:.2f} GB").format(ram_usage))
+                print("現在のRAM使用量: {0:.2f} GB").format(ram_usage)
             except:
                 # psutilがインストールされていない場合や、その他のエラーが発生した場合は無視
-                print(translate("RAM使用量の取得に失敗しました"))
+                print("RAM使用量の取得に失敗しました")
             
-            print(translate("transformerのリロードが完了しました"))
+            print("transformerのリロードが完了しました")
             return True
             
         except Exception as e:
-            print(translate("transformerリロードエラー: {0}").format(e))
+            print("transformerリロードエラー: {0}").format(e)
             traceback.print_exc()
             self.current_state['is_loaded'] = False
             return False
