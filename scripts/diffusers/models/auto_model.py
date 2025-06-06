@@ -127,7 +127,7 @@ class AutoModel(ConfigMixin):
         Example:
 
         ```py
-        from diffusers import AutoModel
+        from .. import AutoModel
 
         unet = AutoModel.from_pretrained("runwayml/stable-diffusion-v1-5", subfolder="unet")
         ```
