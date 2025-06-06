@@ -330,7 +330,7 @@ class TextualInversionLoaderMixin:
         To load a Textual Inversion embedding vector in 🤗 Diffusers format:
 
         ```py
-        from diffusers import StableDiffusionPipeline
+        from .. import StableDiffusionPipeline
         import torch
 
         model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
@@ -349,7 +349,7 @@ class TextualInversionLoaderMixin:
         locally:
 
         ```py
-        from diffusers import StableDiffusionPipeline
+        from .. import StableDiffusionPipeline
         import torch
 
         model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
@@ -466,7 +466,7 @@ class TextualInversionLoaderMixin:
 
         Example:
         ```py
-        from diffusers import AutoPipelineForText2Image
+        from .. import AutoPipelineForText2Image
         import torch
 
         pipeline = AutoPipelineForText2Image.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5")
