@@ -1,5 +1,5 @@
 import torch
-from diffusers import AutoencoderKLHunyuanVideo
+from ..diffusers import AutoencoderKLHunyuanVideo
 from .memory import DynamicSwapInstaller, model_on_device
 
 class VaeManager:
