@@ -3,8 +3,8 @@ from pathlib import Path
 
 class FramepackDiscovery:
     """
-    Checks for the existence of FramePack F1 models and resolves their local paths.
-    Includes enhanced logging for debugging purposes.
+    FramePack F1モデルの存在を確認し、ローカルパスを解決します。
+    異なるキャッシュ構造に対応するため、探索ロジックとデバッグログが強化されています。
     """
     REQUIRED_COMPONENTS = {
         "transformer": {
@@ -40,7 +40,7 @@ class FramepackDiscovery:
             print(f"[DEBUG] 'hub' directory found. Using standard cache structure.")
         else:
             self.hub_cache = base_cache_dir
-            print(f"[DEBUG] 'hub' directory not found. Using flat cache structure (Forge environment).")
+            print(f"[DEBUG] 'hub' directory not found. Assuming flat cache structure (e.g., for Forge).")
         
         print(f"[INFO] Final resolved cache directory to be searched: {self.hub_cache}")
         print(f"[INFO] Does this directory exist? -> {self.hub_cache.is_dir()}")
@@ -48,25 +48,43 @@ class FramepackDiscovery:
 
 
     def _get_snapshot_path(self, repo_id: str) -> Path | None:
-        """指定されたリポジトリの最新のスナップショットディレクトリパスを取得する"""
-        repo_dir_name = f"models--{repo_id.replace('/', '--')}"
-        repo_path = self.hub_cache / repo_dir_name
-        
-        print(f"  [sub-check] Attempting to find repo directory: {repo_path}")
-        if not repo_path.is_dir():
-            print(f"  [sub-check] FAIL: Repo directory not found.")
-            return None
-        print(f"  [sub-check] OK: Repo directory found.")
+        """
+        指定されたリポジトリの最新スナップショットディレクトリパスを柔軟に探索して取得する。
+        """
+        # 探索候補となる複数のディレクトリパスを生成
+        possible_paths = [
+            # 1. Hugging Face標準の命名規則 (例: models--user--repo)
+            self.hub_cache / f"models--{repo_id.replace('/', '--')}",
+            # 2. リポジトリ名のみの単純な命名規則 (例: HunyuanVideo)
+            self.hub_cache / repo_id.split('/')[-1]
+        ]
 
+        repo_path = None
+        print(f"  [search] Searching for repository '{repo_id}'...")
+        for path_to_check in possible_paths:
+            print(f"  -> Probing path: {path_to_check}")
+            if path_to_check.is_dir():
+                repo_path = path_to_check
+                print(f"  [search] OK: Repository found at probed path.")
+                break
+        
+        if not repo_path:
+            print(f"  [search] FAIL: Repository directory not found in any known location.")
+            return None
+
+        # snapshots ディレクトリを探索
         snapshots_dir = repo_path / "snapshots"
         print(f"  [sub-check] Attempting to find snapshots directory: {snapshots_dir}")
         if not snapshots_dir.is_dir():
-            print(f"  [sub-check] FAIL: Snapshots directory not found.")
-            return None
+            print(f"  [sub-check] INFO: 'snapshots' directory not found. Assuming the repo path itself is the snapshot.")
+            # Fallback: snapshotsディレクトリがない場合、リポジトリルートをスナップショットパスとして返す
+            return repo_path
+        
         print(f"  [sub-check] OK: Snapshots directory found.")
             
         try:
-            latest_snapshot = max(snapshots_dir.iterdir(), key=os.path.getmtime)
+            # 最新のスナップショット（更新日時が最も新しいディレクトリ）を選択
+            latest_snapshot = max(snapshots_dir.iterdir(), key=lambda p: p.stat().st_mtime)
             print(f"  [sub-check] OK: Found latest snapshot: {latest_snapshot.name}")
             return latest_snapshot
         except ValueError:
@@ -81,6 +99,10 @@ class FramepackDiscovery:
         for component, info in self.REQUIRED_COMPONENTS.items():
             repo_id = info["repo_id"]
             check_file = info["check_file"]
+            
+            # 同じリポジトリを何度もチェックしないための最適化
+            if repo_id in [self.REQUIRED_COMPONENTS[c]["repo_id"] for c in missing_repos]:
+                continue
             
             print(f"\n--- Checking component: '{component}' (Repo: {repo_id}) ---")
             
@@ -112,5 +134,7 @@ class FramepackDiscovery:
             return None
         
         repo_id = self.REQUIRED_COMPONENTS[component_name]["repo_id"]
+        # このメソッドは探索ロジックを再利用するだけなので、ログはcheck_models_existで十分
+        # より静かな実行のために、ここではprintを省略
         snapshot_path = self._get_snapshot_path(repo_id)
         return str(snapshot_path) if snapshot_path and snapshot_path.is_dir() else None
