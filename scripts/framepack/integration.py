@@ -19,33 +19,26 @@ from .text_encoder_manager import TextEncoderManager
 from .k_diffusion_hunyuan import sample_hunyuan
 from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
 from .utils import resize_and_center_crop, save_bcthw_as_mp4
-# --- 修正箇所：downloaderとvalidatorのインポートは不要 ---
-# from .downloader import FramepackDownloader 
-# from .validator import FramepackValidator
 from .discovery import FramepackDiscovery
-from .memory import gpu
-from scripts.diffusers import AutoencoderKLHunyuanVideo, HunyuanVideoFramepackTransformer3DModel
+from scripts.diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer
 
 
 class FramepackIntegration:
-    """Central integration class for FramePack F1"""
+    """FramePack F1のモデル管理とビデオ生成を統合する司令塔クラス。"""
 
     def __init__(self, device):
         self.device = device
         self.managers = None
         self.sdxl_components = None
-        # --- 修正箇所：downloaderとvalidatorのインスタンス化を削除 ---
-        # self.downloader = FramepackDownloader()
+        
+        # discoveryは引数なしで初期化。これにより、環境変数やデフォルトの
+        # Hugging Faceキャッシュパスを自動的に探索する。
         self.discovery = FramepackDiscovery()
-        # self.validator = FramepackValidator()
 
-    # ------------------------------------------------------------------
-    # manager helpers
-    # ------------------------------------------------------------------
-    def _initialize_managers(self, local_paths: dict[str, str]): # <- 解決済みのパスを受け取る
+    def _initialize_managers(self, local_paths: dict[str, str]):
         """
-        Initializes all model managers using explicit local paths.
+        解決済みの絶対パスを受け取り、各モデルマネージャーを初期化する。
         """
         global_managers = {
             "transformer": None,
@@ -57,37 +50,36 @@ class FramepackIntegration:
         free_mem_gb = get_cuda_free_memory_gb(self.device)
         high_vram = free_mem_gb > 16
 
-        # --- 修正箇所：各マネージャーに絶対パスを渡して初期化 ---
         print("Initializing managers with explicit model paths...")
+        
+        # 各マネージャーに、discoveryが解決したモデルへの絶対パスを渡す
         transformer_path = local_paths.get("transformer")
         global_managers["transformer"] = TransformerManager(
             device=self.device, 
             high_vram_mode=high_vram, 
             use_f1_model=True,
-            model_path=transformer_path # Transformerのパス
+            model_path=transformer_path
         )
 
         text_encoder_path = local_paths.get("text_encoder")
         global_managers["text_encoder"] = TextEncoderManager(
             device=self.device, 
             high_vram_mode=high_vram,
-            model_path=text_encoder_path # Text Encoderのパス
+            model_path=text_encoder_path
         )
 
-        # VaeManagerとTokenizerManagerも同様にパスを渡して、ハードコーディングを排除
         vae_path = local_paths.get("vae")
-        text_encoder_path = local_paths.get("text_encoder") # tokenizerはtext_encoderと同じリポジトリ
 
+        # VAEとTokenizerのためのシンプルなインナークラスマネージャー
         class VaeManager:
             def __init__(self, device, model_path: str):
                 self.model = None
                 self.device = device
-                self.model_path = model_path # パスを保存
+                self.model_path = model_path
 
             def get(self):
                 if self.model is None:
                     print(f"Loading VAE from: {self.model_path}")
-                    # ハードコードされたリポジトリ名の代わりに、渡されたパスを使用
                     self.model = AutoencoderKLHunyuanVideo.from_pretrained(
                         self.model_path, subfolder="vae", torch_dtype=torch.float16, local_files_only=True
                     ).cpu()
@@ -98,12 +90,11 @@ class FramepackIntegration:
             def __init__(self, model_path: str):
                 self.tokenizer = None
                 self.tokenizer_2 = None
-                self.model_path = model_path # パスを保存
+                self.model_path = model_path
 
             def get(self):
                 if self.tokenizer is None:
                     print(f"Loading Tokenizers from: {self.model_path}")
-                    # ハードコードされたリポジトリ名の代わりに、渡されたパスを使用
                     self.tokenizer = LlamaTokenizerFast.from_pretrained(self.model_path, subfolder="tokenizer", local_files_only=True)
                     self.tokenizer_2 = CLIPTokenizer.from_pretrained(self.model_path, subfolder="tokenizer_2", local_files_only=True)
                 return self.tokenizer, self.tokenizer_2
@@ -126,10 +117,10 @@ class FramepackIntegration:
             components["text_encoders"] = sd_model.cond_stage_model
         return components
 
-    # ------------------------------------------------------------------
     def setup_environment(self):
-        # --- ★★★ 最終修正箇所：ここから ★★★ ---
-        
+        """
+        モデルの存在チェックからマネージャーの初期化まで、実行環境をセットアップする。
+        """
         # ステップ1：モデルがローカルにすべて存在するかチェック
         print("Step 1: Checking for required local models...")
         models_exist, missing_repos = self.discovery.check_models_exist()
@@ -164,19 +155,21 @@ class FramepackIntegration:
         print("Step 3: Initializing model managers with resolved paths...")
         self.managers = self._initialize_managers(local_paths)
 
-        # ステップ4：メインのSDXLモデルをオフロード
-        print("Step 4: Offloading base SDXL model from VRAM...")
+        # ステップ4：メインのSDモデルをVRAMからオフロード
+        print("Step 4: Offloading base SD model from VRAM...")
         self.sdxl_components = self._get_sdxl_components(shared.sd_model)
         if self.sdxl_components["unet"]:
             offload_model_from_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
-        # (以下同様のオフロード処理)
+        if self.sdxl_components["vae"]:
+            offload_model_from_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
+        if self.sdxl_components["text_encoders"]:
+            offload_model_from_device_for_memory_preservation(self.sdxl_components["text_encoders"], self.device)
         
         gc.collect()
         torch.cuda.empty_cache()
         print("Environment setup complete.")
 
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
-        # (このメソッドは変更なし)
         managers = self.managers
         f1_vae = managers["vae"].get()
         f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get()
@@ -231,25 +224,29 @@ class FramepackIntegration:
         print(f"[FramePack F1] Video saved to {output_path}")
 
     def cleanup_environment(self):
-        # (このメソッドは変更なし)
-        # cleanup_environmentは、self.managersがNoneの場合にエラーになる可能性があるため、ガード節を追加
         if self.managers is None:
             print("Cleanup skipped: managers were not initialized.")
             return
 
+        # 各マネージャーが管理するモデルを安全にCPUへオフロード
         f1_transformer = self.managers.get("transformer").get_transformer()
         if f1_transformer is not None and next(f1_transformer.parameters()).device.type != "meta":
             f1_transformer.to(cpu)
+        
         f1_vae = self.managers.get("vae").get()
         if f1_vae is not None and next(f1_vae.parameters()).device.type != "meta":
             f1_vae.to(cpu)
+        
         f1_text_encoder, f1_text_encoder_2 = self.managers.get("text_encoder").get_text_encoders()
         if f1_text_encoder is not None and next(f1_text_encoder.parameters()).device.type != "meta":
             f1_text_encoder.to(cpu)
         if f1_text_encoder_2 is not None and next(f1_text_encoder_2.parameters()).device.type != "meta":
             f1_text_encoder_2.to(cpu)
+
         gc.collect()
         torch.cuda.empty_cache()
+
+        # メインのSDモデルをVRAMにリストア
         if self.sdxl_components["unet"]:
             move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
         if self.sdxl_components["vae"]:
