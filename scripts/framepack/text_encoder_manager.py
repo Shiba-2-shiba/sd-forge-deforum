@@ -1,3 +1,4 @@
+import os
 import torch
 import traceback
 import gc
@@ -12,10 +13,16 @@ class TextEncoderManager:
     設定の変更はすぐには適用されず、次回のリロード時に適用されます。
     """
 
-    def __init__(self, device, high_vram_mode=False):
+    # --- 修正箇所 1 ---
+    def __init__(self, device, high_vram_mode: bool, model_path: str):
         self.text_encoder = None
         self.text_encoder_2 = None
         self.device = device
+
+        # 受け取ったモデルパスを検証し、保存する
+        if not model_path or not os.path.isdir(model_path):
+            raise FileNotFoundError(f"TextEncoderManager received an invalid model_path: {model_path}")
+        self.model_path = model_path
 
         # 現在適用されている設定
         self.current_state = {
@@ -26,35 +33,22 @@ class TextEncoderManager:
         # 次回のロード時に適用する設定
         self.next_state = self.current_state.copy()
         
-    def set_next_settings(self, high_vram_mode=False):
-        """次回のロード時に使用する設定をセット（即時のリロードは行わない）
-        
-        Args:
-            high_vram_mode: High-VRAMモードの有効/無効
-        """
-        self.next_state = {
-            'high_vram': high_vram_mode,
-            'is_loaded': self.current_state['is_loaded']
-        }
-        print(translate("次回のtext_encoder設定を設定しました:"))
-        print(translate("  - High-VRAM mode: {0}").format(high_vram_mode))
+    def set_next_settings(self, high_vram_mode: bool):
+        """次回のロード時に使用する設定をセット（即時のリロードは行わない）"""
+        self.next_state['high_vram'] = high_vram_mode
+        print(f"次回のtext_encoder設定を設定しました: High-VRAM mode: {high_vram_mode}")
     
     def _needs_reload(self):
         """現在の状態と次回の設定を比較し、リロードが必要かどうかを判断"""
         if not self._is_loaded():
             return True
-
-        # High-VRAMモードの比較
         if self.current_state['high_vram'] != self.next_state['high_vram']:
             return True
-
         return False
     
     def _is_loaded(self):
         """text_encoderとtext_encoder_2が読み込まれているかどうかを確認"""
-        return (self.text_encoder is not None and 
-                self.text_encoder_2 is not None and 
-                self.current_state['is_loaded'])
+        return self.text_encoder is not None and self.text_encoder_2 is not None and self.current_state['is_loaded']
     
     def get_text_encoders(self):
         """現在のtext_encoderとtext_encoder_2インスタンスを取得"""
@@ -63,77 +57,69 @@ class TextEncoderManager:
     def dispose_text_encoders(self):
         """text_encoderとtext_encoder_2のインスタンスを破棄し、メモリを完全に解放"""
         try:
-            print(translate("text_encoderとtext_encoder_2のメモリを解放します..."))
+            if not self._is_loaded():
+                return True
             
-            # text_encoderの破棄
-            if hasattr(self, 'text_encoder') and self.text_encoder is not None:
-                try:
-                    self.text_encoder.cpu()
-                    del self.text_encoder
-                    self.text_encoder = None
-                except Exception as e:
-                    print(translate("text_encoderの破棄中にエラー: {0}").format(e))
+            print("text_encoderとtext_encoder_2のメモリを解放します...")
+            
+            if self.text_encoder is not None:
+                self.text_encoder.to('cpu')
+                del self.text_encoder
+                self.text_encoder = None
 
-            # text_encoder_2の破棄
-            if hasattr(self, 'text_encoder_2') and self.text_encoder_2 is not None:
-                try:
-                    self.text_encoder_2.cpu()
-                    del self.text_encoder_2
-                    self.text_encoder_2 = None
-                except Exception as e:
-                    print(translate("text_encoder_2の破棄中にエラー: {0}").format(e))
+            if self.text_encoder_2 is not None:
+                self.text_encoder_2.to('cpu')
+                del self.text_encoder_2
+                self.text_encoder_2 = None
 
-            # 明示的なメモリ解放
+            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            gc.collect()
 
-            # 状態を更新
             self.current_state['is_loaded'] = False
-            self.next_state['is_loaded'] = False
-            
-            print(translate("text_encoderとtext_encoder_2のメモリ解放が完了しました"))
+            print("text_encoderとtext_encoder_2のメモリ解放が完了しました")
             return True
             
         except Exception as e:
-            print(translate("text_encoderとtext_encoder_2のメモリ解放中にエラー: {0}").format(e))
+            print(f"text_encoderとtext_encoder_2のメモリ解放中にエラー: {e}")
             traceback.print_exc()
             return False
 
     def ensure_text_encoder_state(self):
         """text_encoderとtext_encoder_2の状態を確認し、必要に応じてリロード"""
         if self._needs_reload():
-            print(translate("text_encoderとtext_encoder_2をリロードします"))
+            print("text_encoderとtext_encoder_2をリロードします")
             return self._reload_text_encoders()        
-        print(translate("ロード済みのtext_encoderとtext_encoder_2を再度利用します"))
+        print("ロード済みのtext_encoderとtext_encoder_2を再度利用します")
         return True
     
+    # --- 修正箇所 2 ---
     def _reload_text_encoders(self):
         """next_stateの設定でtext_encoderとtext_encoder_2をリロード"""
         try:
-            # 既存のモデルが存在する場合は先にメモリを解放
-            if self._is_loaded():
-                self.dispose_text_encoders()
+            self.dispose_text_encoders() # 既存のモデルを確実に解放
 
-            # 新しいtext_encoderとtext_encoder_2インスタンスを作成
             from transformers import LlamaModel, CLIPTextModel
+            
+            print(f"Loading Text Encoders from: {self.model_path}")
+
+            # ハードコードされたリポジトリ名を self.model_path に置き換え、local_files_only=True を追加
             self.text_encoder = LlamaModel.from_pretrained(
-                "hunyuanvideo-community/HunyuanVideo", 
+                self.model_path, 
                 subfolder='text_encoder', 
-                torch_dtype=torch.float16
+                torch_dtype=torch.float16,
+                local_files_only=True
             ).cpu()
             
             self.text_encoder_2 = CLIPTextModel.from_pretrained(
-                "hunyuanvideo-community/HunyuanVideo", 
+                self.model_path, 
                 subfolder='text_encoder_2', 
-                torch_dtype=torch.float16
+                torch_dtype=torch.float16,
+                local_files_only=True
             ).cpu()
             
             self.text_encoder.eval()
             self.text_encoder_2.eval()
-            
-            self.text_encoder.to(dtype=torch.float16)
-            self.text_encoder_2.to(dtype=torch.float16)
             
             self.text_encoder.requires_grad_(False)
             self.text_encoder_2.requires_grad_(False)
@@ -146,15 +132,14 @@ class TextEncoderManager:
                 self.text_encoder.to(self.device)
                 self.text_encoder_2.to(self.device)
             
-            # 状態を更新
             self.next_state['is_loaded'] = True
             self.current_state = self.next_state.copy()
             
-            print(translate("text_encoderとtext_encoder_2のリロードが完了しました"))
+            print("text_encoderとtext_encoder_2のリロードが完了しました")
             return True
             
         except Exception as e:
-            print(translate("text_encoderとtext_encoder_2リロードエラー: {0}").format(e))
+            print(f"text_encoderとtext_encoder_2リロードエラー: {e}")
             traceback.print_exc()
             self.current_state['is_loaded'] = False
-            return False 
+            return False
