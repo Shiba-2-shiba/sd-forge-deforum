@@ -21,9 +21,7 @@ from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
 from .utils import resize_and_center_crop, save_bcthw_as_mp4
 from .discovery import FramepackDiscovery
 from scripts.diffusers import AutoencoderKLHunyuanVideo
-# --- ▼▼▼ 修正箇所：ImageProcessorをSiglipImageProcessorに変更 ▼▼▼ ---
 from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, SiglipImageProcessor
-# --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
 
 class FramepackIntegration:
@@ -91,7 +89,6 @@ class FramepackIntegration:
                     self.model.eval()
                 return self.model
 
-        # --- ▼▼▼ 修正箇所：ImageProcessorをSiglipImageProcessorに変更 ▼▼▼ ---
         class ImageProcessorManager:
             def __init__(self, model_path: str):
                 self.processor = None
@@ -100,12 +97,10 @@ class FramepackIntegration:
             def get(self):
                 if self.processor is None:
                     print(f"Loading Image Processor from: {self.model_path}")
-                    # モデルファミリーに合わせたSiglipImageProcessorを使用する
                     self.processor = SiglipImageProcessor.from_pretrained(
                         self.model_path, subfolder="feature_extractor", local_files_only=True
                     )
                 return self.processor
-        # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
         global_managers["image_encoder"] = ImageEncoderManager(self.device, model_path=flux_bfl_path)
         global_managers["image_processor"] = ImageProcessorManager(model_path=flux_bfl_path)
@@ -247,19 +242,21 @@ class FramepackIntegration:
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
             start_latent = vae_encode(init_image_np, f1_vae)
 
+        # --- ▼▼▼ 修正箇所：ここから ▼▼▼ ---
+        # VRAM枯渇を防ぐため、`with model_on_device(...)` を使わずにプロンプトをエンコードします。
+        # TextEncoderManagerに実装された動的スワッピング機能が、VRAMを効率的に使用してくれます。
+        
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         
-        with model_on_device(f1_text_encoder, self.device), model_on_device(f1_text_encoder_2, self.device):
-            llama_vec, clip_l_pooler = encode_prompt_conds(
-                prompt_text,
-                f1_text_encoder,
-                f1_text_encoder_2,
-                f1_tokenizer,
-                f1_tokenizer_2,
-            )
-        f1_text_encoder.to(cpu)
-        f1_text_encoder_2.to(cpu)
+        llama_vec, clip_l_pooler = encode_prompt_conds(
+            prompt_text,
+            f1_text_encoder,
+            f1_text_encoder_2,
+            f1_tokenizer,
+            f1_tokenizer_2,
+        )
+        # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
         managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
