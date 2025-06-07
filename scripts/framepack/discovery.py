@@ -5,7 +5,6 @@ class FramepackDiscovery:
     """
     Checks for the existence of FramePack F1 models and resolves their local paths.
     """
-    # 必須コンポーネントと、それに対応するリポジトリIDおよび検証用ファイル
     REQUIRED_COMPONENTS = {
         "transformer": {
             "repo_id": "lllyasviel/FramePack_F1_I2V_HY_20250503",
@@ -26,10 +25,19 @@ class FramepackDiscovery:
     }
 
     def __init__(self, cache_dir: str | None = None):
+        # --- ★★★ 最終修正箇所：ここから ★★★ ---
         # HuggingFaceのキャッシュディレクトリを特定
-        self.cache_dir = Path(cache_dir) if cache_dir else Path(os.getenv("HF_HOME", Path.home() / ".cache/huggingface"))
-        self.hub_cache = self.cache_dir / "hub"
-        print(f"Discovery using cache directory: {self.hub_cache}")
+        base_cache_dir = Path(cache_dir) if cache_dir else Path(os.getenv("HF_HOME", Path.home() / ".cache/huggingface"))
+
+        # Forge環境では .../diffusers が、標準では .../huggingface/hub が探索対象となる
+        # 'hub' ディレクトリが存在する場合のみパスに追加し、それ以外はベースパスを直接使用する
+        if (base_cache_dir / "hub").is_dir():
+            self.hub_cache = base_cache_dir / "hub"
+        else:
+            self.hub_cache = base_cache_dir
+        
+        print(f"Discovery using final resolved cache directory: {self.hub_cache}")
+        # --- ★★★ 最終修正箇所：ここまで ★★★ ---
 
     def _get_snapshot_path(self, repo_id: str) -> Path | None:
         """指定されたリポジトリの最新のスナップショットディレクトリパスを取得する"""
@@ -42,25 +50,19 @@ class FramepackDiscovery:
             return None
             
         try:
-            # 更新日時が最新のスナップショットディレクトリを返す
             return max(snapshots_dir.iterdir(), key=os.path.getmtime)
         except ValueError:
-            return None # スナップショットが存在しない
+            return None
 
     def check_models_exist(self) -> tuple[bool, list[str]]:
-        """
-        全ての必須モデルが存在するかチェックする。
-        戻り値: (全てのモデルが存在するかどうか, 見つからなかったリポジトリのリスト)
-        """
+        """全ての必須モデルが存在するかチェックする。"""
         missing_repos = []
         all_found = True
         for component, info in self.REQUIRED_COMPONENTS.items():
             repo_id = info["repo_id"]
             snapshot_path = self._get_snapshot_path(repo_id)
             
-            # スナップショットパス自体、またはその中のチェック用ファイルが存在しない場合
             if snapshot_path is None or not (snapshot_path / info["check_file"]).exists():
-                print(f"Component '{component}' not found. Expected repo: {repo_id}")
                 all_found = False
                 if repo_id not in missing_repos:
                     missing_repos.append(repo_id)
