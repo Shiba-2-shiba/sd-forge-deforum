@@ -59,7 +59,13 @@ def sample_hunyuan(
         batch_size = int(prompt_embeds.shape[0])
 
     latents = torch.randn((batch_size, 16, (frames + 3) // 4, height // 8, width // 8), generator=generator, device=generator.device).to(device=device, dtype=torch.float32)
-
+    # --- ▼▼▼ デバッグログ追加 ▼▼▼ ---
+    print(f"[DEBUG] sample_hunyuan tensor shapes:")
+    if initial_latent is not None:
+        print(f"[DEBUG]   - initial_latent shape: {initial_latent.shape}")
+    print(f"[DEBUG]   - noise latents shape:    {latents.shape}")
+    # --- ▲▲▲ ログ追加完了 ▲▲▲ ---
+    
     B, C, T, H, W = latents.shape
     seq_length = T * H * W // 4
 
