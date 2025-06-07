@@ -3,7 +3,7 @@ import torch
 import gc
 import numpy as np
 from PIL import Image
-from pathlib import Path
+import json # JSONをパースするためにインポート
 
 from modules import shared
 from modules.devices import cpu
@@ -174,6 +174,27 @@ class FramepackIntegration:
         f1_vae = managers["vae"].get()
         f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get()
 
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+
+        # 1. args.promptから単一プロンプトを取得し、存在をチェック
+        # Deforumのプロンプト入力は `args.prompts` (複数形) にJSON形式で格納される
+        # ここでは、そのJSONから最初のプロンプトを抜き出すか、単純なプロンプト `args.prompt` を使う
+        prompt_text = ""
+        try:
+            # まずJSON形式のプロンプトスケジュールを試す
+            prompts_schedule = json.loads(args.prompts)
+            first_frame = sorted(prompts_schedule.keys(), key=int)[0]
+            prompt_text = prompts_schedule[first_frame]
+        except (json.JSONDecodeError, TypeError, IndexError):
+            # JSONでなければ、単一の文字列プロンプトとして扱う
+            prompt_text = args.prompt
+
+        if not prompt_text:
+            raise ValueError("A prompt is required for FramePack F1 generation. Please provide a prompt in the Deforum's prompt field.")
+
+        print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
+        
+        # 2. 初期画像とプロンプトのエンコード
         with model_on_device(f1_vae, self.device):
             init_image = np.array(Image.open(args.init_image).convert("RGB"))
             init_image = resize_and_center_crop(init_image, args.W, args.H)
@@ -181,9 +202,11 @@ class FramepackIntegration:
 
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
+        
         with model_on_device(f1_text_encoder, self.device), model_on_device(f1_text_encoder_2, self.device):
+            # 修正：単一の `prompt_text` をエンコーダに渡す
             llama_vec, clip_l_pooler = encode_prompt_conds(
-                anim_args.animation_prompts,
+                prompt_text,
                 f1_text_encoder,
                 f1_text_encoder_2,
                 f1_tokenizer,
@@ -192,6 +215,9 @@ class FramepackIntegration:
         f1_text_encoder.to(cpu)
         f1_text_encoder_2.to(cpu)
 
+        # --- ▲▲▲ 修正完了 ▲▲▲ ---
+
+        # 3. ビデオ生成ループ
         managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
         history_latents = start_latent.clone()
@@ -201,11 +227,14 @@ class FramepackIntegration:
             history_latents = history_latents.to(self.device)
             llama_vec = llama_vec.to(self.device)
             clip_l_pooler = clip_l_pooler.to(self.device)
+            
             for i_section in range(total_sections):
                 shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
                 shared.state.job_no = i_section + 1
                 if shared.state.interrupted:
                     break
+                    
+                # sample_hunyuanは単一プロンプトの埋め込みを受け取るので、ループの外でエンコードしたものを使い回す
                 generated_latents = sample_hunyuan(
                     transformer=f1_transformer,
                     initial_latent=history_latents[:, :, -1:],
@@ -216,6 +245,7 @@ class FramepackIntegration:
                 )
                 history_latents = torch.cat([history_latents, generated_latents], dim=2)
 
+        # 4. デコードとビデオ保存
         with model_on_device(f1_vae, self.device):
             final_video_frames = vae_decode(history_latents, f1_vae)
 
