@@ -6,8 +6,8 @@ from accelerate import init_empty_weights
 
 # --- 修正箇所：ローカルのdiffusersからインポートすることを明示 ---
 # これまでの議論に基づき、このスクリプトは拡張機能内のdiffusersライブラリから
-# HunyuanVideoTransformer3DModelPackedをインポートすることを想定しています。
-from scripts.diffusers import HunyuanVideoTransformer3DModelPacked
+# HunyuanVideoTransformer3DModelPackedはまちがい
+from scripts.diffusers import HunyuanVideoFramepackTransformer3DModel
 from .memory import DynamicSwapInstaller
 
 class TransformerManager:
@@ -116,8 +116,8 @@ class TransformerManager:
             with init_empty_weights():
                 # self.model_path から config のみを読み込む
                 # これにより、エラーの原因だった曖昧なパス解決を回避する
-                config = HunyuanVideoTransformer3DModelPacked.load_config(self.model_path, local_files_only=True)
-                self.transformer = HunyuanVideoTransformer3DModelPacked.from_config(config, torch_dtype=torch.bfloat16)
+                config = HunyuanVideoFramepackTransformer3DModel.load_config(self.model_path, local_files_only=True)
+                self.transformer = HunyuanVideoFramepackTransformer3DModel.from_config(config, torch_dtype=torch.bfloat16)
             self.transformer.to(torch.bfloat16)
         except Exception as e:
             print(f"Failed to create a virtual transformer from config at {self.model_path}")
@@ -161,7 +161,7 @@ class TransformerManager:
 
             if (not lora_paths) and not self.next_state['fp8_enabled'] and not force_dict_split:
                 # --- 修正箇所：from_pretrained で self.model_path を直接使用 ---
-                self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
+                self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
                     self.model_path,
                     torch_dtype=torch.bfloat16,
                     local_files_only=True # ネットワークアクセスを禁止
