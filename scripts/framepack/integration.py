@@ -21,7 +21,10 @@ from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
 from .utils import resize_and_center_crop, save_bcthw_as_mp4
 from .discovery import FramepackDiscovery
 from scripts.diffusers import AutoencoderKLHunyuanVideo
-from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, CLIPImageProcessor
+# --- ▼▼▼ 修正箇所：ここから ▼▼▼ ---
+# CLIP系のクラスから、SigLIP系の正しいクラスにインポートを変更
+from transformers import LlamaTokenizerFast, CLIPTokenizer, SiglipVisionModelWithProjection, SiglipImageProcessor
+# --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
 
 class FramepackIntegration:
@@ -69,6 +72,8 @@ class FramepackIntegration:
 
         flux_bfl_path = local_paths.get("flux_bfl")
 
+        # --- ▼▼▼ 修正箇所：ここから ▼▼▼ ---
+        # ImageEncoderをロードするクラスをSiglipVisionModelWithProjectionに変更
         class ImageEncoderManager:
             def __init__(self, device, model_path: str):
                 self.model = None
@@ -78,12 +83,15 @@ class FramepackIntegration:
             def get(self):
                 if self.model is None:
                     print(f"Loading Image Encoder from: {self.model_path}")
-                    self.model = CLIPVisionModelWithProjection.from_pretrained(
+                    self.model = SiglipVisionModelWithProjection.from_pretrained(
                         self.model_path, subfolder="image_encoder", torch_dtype=torch.float16, local_files_only=True
                     ).cpu()
                     self.model.eval()
                 return self.model
+        # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
+        # --- ▼▼▼ 修正箇所：ここから ▼▼▼ ---
+        # ImageProcessorをロードするクラスをSiglipImageProcessorに変更
         class ImageProcessorManager:
             def __init__(self, model_path: str):
                 self.processor = None
@@ -92,10 +100,11 @@ class FramepackIntegration:
             def get(self):
                 if self.processor is None:
                     print(f"Loading Image Processor from: {self.model_path}")
-                    self.processor = CLIPImageProcessor.from_pretrained(
+                    self.processor = SiglipImageProcessor.from_pretrained(
                         self.model_path, subfolder="feature_extractor", local_files_only=True
                     )
                 return self.processor
+        # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
         global_managers["image_encoder"] = ImageEncoderManager(self.device, model_path=flux_bfl_path)
         global_managers["image_processor"] = ImageProcessorManager(model_path=flux_bfl_path)
