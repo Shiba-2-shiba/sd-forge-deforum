@@ -67,7 +67,7 @@ class FramepackIntegration:
             model_path=text_encoder_path
         )
 
-        image_encoder_path = local_paths.get("text_encoder")
+        flux_bfl_path = local_paths.get("flux_bfl")
 
         class ImageEncoderManager:
             def __init__(self, device, model_path: str):
@@ -93,12 +93,12 @@ class FramepackIntegration:
                 if self.processor is None:
                     print(f"Loading Image Processor from: {self.model_path}")
                     self.processor = CLIPImageProcessor.from_pretrained(
-                        self.model_path, subfolder="image_processor", local_files_only=True
+                        self.model_path, subfolder="feature_extractor", local_files_only=True
                     )
                 return self.processor
 
-        global_managers["image_encoder"] = ImageEncoderManager(self.device, model_path=image_encoder_path)
-        global_managers["image_processor"] = ImageProcessorManager(model_path=image_encoder_path)
+        global_managers["image_encoder"] = ImageEncoderManager(self.device, model_path=flux_bfl_path)
+        global_managers["image_processor"] = ImageProcessorManager(model_path=flux_bfl_path)
 
         vae_path = local_paths.get("vae")
 
@@ -172,6 +172,7 @@ class FramepackIntegration:
             "transformer": self.discovery.get_local_path("transformer"),
             "text_encoder": self.discovery.get_local_path("text_encoder"),
             "vae": self.discovery.get_local_path("vae"),
+            "flux_bfl": self.discovery.get_local_path("flux_bfl"),
         }
         
         for name, path in local_paths.items():
