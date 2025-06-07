@@ -21,9 +21,9 @@ from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
 from .utils import resize_and_center_crop, save_bcthw_as_mp4
 from .discovery import FramepackDiscovery
 from scripts.diffusers import AutoencoderKLHunyuanVideo
-# --- ▼▼▼ 修正箇所 1/3：インポートするクラス名を修正 ▼▼▼ ---
-from transformers import LlamaTokenizerFast, CLIPTokenizer, SiglipModel, SiglipImageProcessor
-# --- ▲▲▲ 修正箇所 1/3：ここまで ▲▲▲ ---
+# --- ▼▼▼ 修正箇所：インポートをCLIP系に戻す ▼▼▼ ---
+from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, CLIPImageProcessor
+# --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
 
 class FramepackIntegration:
@@ -71,7 +71,7 @@ class FramepackIntegration:
 
         flux_bfl_path = local_paths.get("flux_bfl")
 
-        # --- ▼▼▼ 修正箇所 2/3：ロードするモデルのクラスをSiglipModelに修正 ▼▼▼ ---
+        # --- ▼▼▼ 修正箇所：CLIPVisionModelWithProjectionに戻し、ignore_mismatched_sizes=True を追加 ▼▼▼ ---
         class ImageEncoderManager:
             def __init__(self, device, model_path: str):
                 self.model = None
@@ -81,14 +81,19 @@ class FramepackIntegration:
             def get(self):
                 if self.model is None:
                     print(f"Loading Image Encoder from: {self.model_path}")
-                    # SiglipModelクラスを使ってロードする
-                    self.model = SiglipModel.from_pretrained(
-                        self.model_path, subfolder="image_encoder", torch_dtype=torch.float16, local_files_only=True
+                    # CLIP系のクラスを使い、サイズ不一致を許容する引数を追加
+                    self.model = CLIPVisionModelWithProjection.from_pretrained(
+                        self.model_path, 
+                        subfolder="image_encoder", 
+                        torch_dtype=torch.float16, 
+                        local_files_only=True,
+                        ignore_mismatched_sizes=True  # この行が重要
                     ).cpu()
                     self.model.eval()
                 return self.model
-        # --- ▲▲▲ 修正箇所 2/3：ここまで ▲▲▲ ---
+        # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
+        # --- ▼▼▼ 修正箇所：ImageProcessorもCLIP系に戻す ▼▼▼ ---
         class ImageProcessorManager:
             def __init__(self, model_path: str):
                 self.processor = None
@@ -97,10 +102,11 @@ class FramepackIntegration:
             def get(self):
                 if self.processor is None:
                     print(f"Loading Image Processor from: {self.model_path}")
-                    self.processor = SiglipImageProcessor.from_pretrained(
+                    self.processor = CLIPImageProcessor.from_pretrained(
                         self.model_path, subfolder="feature_extractor", local_files_only=True
                     )
                 return self.processor
+        # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
         global_managers["image_encoder"] = ImageEncoderManager(self.device, model_path=flux_bfl_path)
         global_managers["image_processor"] = ImageProcessorManager(model_path=flux_bfl_path)
@@ -230,13 +236,9 @@ class FramepackIntegration:
         with model_on_device(f1_image_encoder, self.device):
             image_pixels = f1_image_processor(images=pil_init_image, return_tensors="pt").pixel_values
             image_pixels = image_pixels.to(self.device, dtype=torch.float16)
-
-            # --- ▼▼▼ 修正箇所 3/3：SiglipModelの正しい呼び出し方に変更 ▼▼▼ ---
-            # 2段階の処理でimage_embedsを取得する
-            vision_outputs = f1_image_encoder.vision_model(pixel_values=image_pixels)
-            pooled_output = vision_outputs.pooler_output
-            image_embeds = f1_image_encoder.vision_projection(pooled_output)
-            # --- ▲▲▲ 修正箇所 3/3：ここまで ▲▲▲ ---
+            # --- ▼▼▼ 修正箇所：呼び出し方を元のシンプルな形に戻す ▼▼▼ ---
+            image_embeds = f1_image_encoder(image_pixels).image_embeds
+            # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
 
         h_latent, w_latent = args.H // 8, args.W // 8
         y_indices = torch.arange(h_latent, device=self.device).unsqueeze(1).expand(h_latent, w_latent)
