@@ -101,7 +101,7 @@ class FramepackDiscovery:
             check_file = info["check_file"]
             
             # 同じリポジトリを何度もチェックしないための最適化
-            if repo_id in [self.REQUIRED_COMPONENTS[c]["repo_id"] for c in missing_repos]:
+            if repo_id in missing_repos:
                 continue
             
             print(f"\n--- Checking component: '{component}' (Repo: {repo_id}) ---")
