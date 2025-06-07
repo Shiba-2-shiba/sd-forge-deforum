@@ -114,9 +114,9 @@ def vae_encode(image, vae):
     image_tensor = image_tensor.permute(2, 0, 1)
     # 3. バッチ次元を追加 (1, C, H, W)
     image_tensor = image_tensor.unsqueeze(0)
-    # --- ★★★ ここまで修正箇所 ★★★ ---
-    
-    # 整形した image_tensor を使用する
+    # ★★★ フレーム次元を追加して5次元テンソル (1, C, 1, H, W) に変換 ★★★
+    image_tensor = image_tensor.unsqueeze(2)
+    # 5DテンソルをVAEに渡すため、正常に動作する
     latents = vae.encode(image_tensor.to(device=vae.device, dtype=vae.dtype)).latent_dist.sample()
     latents = latents * vae.config.scaling_factor
     return latents.cpu()
