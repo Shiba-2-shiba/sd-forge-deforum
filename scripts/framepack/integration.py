@@ -206,10 +206,6 @@ class FramepackIntegration:
         history_latents = start_latent.clone()
         total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
 
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-        # `with model_on_device(f1_transformer, self.device):` を削除し、
-        # Transformerの動的なメモリ管理に処理を任せます。
-
         history_latents = history_latents.to(self.device)
         llama_vec = llama_vec.to(self.device)
         clip_l_pooler = clip_l_pooler.to(self.device)
@@ -222,17 +218,19 @@ class FramepackIntegration:
                 
             # TransformerはCPU/Metaデバイス上にありますが、内部のDynamicSwapが
             # 各層の実行時に自動でGPUとの間でデータをやり取りします。
+            
+            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
                 strength=framepack_f1_args.f1_image_strength,
-                steps=framepack_f1_args.f1_generation_latent_size,
-                llama_vec=llama_vec,
-                clip_l_pooler=clip_l_pooler,
+                num_inference_steps=framepack_f1_args.f1_generation_latent_size, # 引数名を修正
+                prompt_embeds=llama_vec,                                        # 引数名を修正
+                prompt_poolers=clip_l_pooler,                                   # 引数名を修正
             )
+            # --- ▲▲▲ 修正完了 ▲▲▲ ---
+
             history_latents = torch.cat([history_latents, generated_latents], dim=2)
-        
-        # --- ▲▲▲ 修正完了 ▲▲▲ ---
 
         with model_on_device(f1_vae, self.device):
             final_video_frames = vae_decode(history_latents, f1_vae)
@@ -246,26 +244,38 @@ class FramepackIntegration:
             print("Cleanup skipped: managers were not initialized.")
             return
 
-        f1_transformer = self.managers.get("transformer").get_transformer()
-        if f1_transformer is not None and next(f1_transformer.parameters()).device.type != "meta":
-            f1_transformer.to(cpu)
+        # 各マネージャーからモデルを取得してCPUに移動
+        f1_transformer_manager = self.managers.get("transformer")
+        if f1_transformer_manager:
+            f1_transformer = f1_transformer_manager.get_transformer()
+            if f1_transformer is not None and next(f1_transformer.parameters()).device.type != "meta":
+                f1_transformer.to(cpu)
         
-        f1_vae = self.managers.get("vae").get()
-        if f1_vae is not None and next(f1_vae.parameters()).device.type != "meta":
-            f1_vae.to(cpu)
+        f1_vae_manager = self.managers.get("vae")
+        if f1_vae_manager:
+            f1_vae = f1_vae_manager.get()
+            if f1_vae is not None and next(f1_vae.parameters()).device.type != "meta":
+                f1_vae.to(cpu)
         
-        f1_text_encoder, f1_text_encoder_2 = self.managers.get("text_encoder").get_text_encoders()
-        if f1_text_encoder is not None and next(f1_text_encoder.parameters()).device.type != "meta":
-            f1_text_encoder.to(cpu)
-        if f1_text_encoder_2 is not None and next(f1_text_encoder_2.parameters()).device.type != "meta":
-            f1_text_encoder_2.to(cpu)
+        f1_text_encoder_manager = self.managers.get("text_encoder")
+        if f1_text_encoder_manager:
+            f1_text_encoder, f1_text_encoder_2 = f1_text_encoder_manager.get_text_encoders()
+            if f1_text_encoder is not None and next(f1_text_encoder.parameters()).device.type != "meta":
+                f1_text_encoder.to(cpu)
+            if f1_text_encoder_2 is not None and next(f1_text_encoder_2.parameters()).device.type != "meta":
+                f1_text_encoder_2.to(cpu)
 
+        # キャッシュのクリア
         gc.collect()
         torch.cuda.empty_cache()
 
-        if self.sdxl_components["unet"]:
+        # 標準のSDモデルをVRAMに戻す
+        print("Restoring base SD model to VRAM...")
+        if self.sdxl_components and self.sdxl_components["unet"]:
             move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
-        if self.sdxl_components["vae"]:
+        if self.sdxl_components and self.sdxl_components["vae"]:
             move_model_to_device_with_memory_preservation(self.sdxl_components["vae"], self.device)
-        if self.sdxl_components["text_encoders"]:
+        if self.sdxl_components and self.sdxl_components["text_encoders"]:
             move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
+        
+        print("Cleanup complete.")
