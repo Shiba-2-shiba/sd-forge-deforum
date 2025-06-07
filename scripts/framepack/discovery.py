@@ -16,7 +16,7 @@ class FramepackDiscovery:
     def discover_models(self) -> dict[str, bool]:
         results: dict[str, bool] = {"all_found": True}
         for name, rel in self.REQUIRED.items():
-            path = self.cache_dir / "models--" + rel.replace("/", "--")
+            path = self.cache_dir / ("models--" + rel.replace("/", "--"))
             exists = path.exists()
             results[name] = exists
             if not exists:
