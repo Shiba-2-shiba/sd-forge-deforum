@@ -22,3 +22,17 @@ class ModelDownloader:
             self._download_repo(repo)
             print(f"Finished downloading {repo}")
 
+
+# --- ここから修正箇所 ---
+# このスクリプトが直接実行された場合にのみ、以下のコードが実行される
+if __name__ == "__main__":
+    print("Starting FramePack F1 model download as a standalone script...")
+    
+    # ModelDownloaderのインスタンスを作成
+    downloader = ModelDownloader()
+    
+    # ダウンロード処理を実行
+    downloader.download_f1()
+    
+    print("All downloads completed.")
+# --- 修正はここまで ---
