@@ -3,7 +3,7 @@ import torch
 import gc
 import numpy as np
 from PIL import Image
-import json # 念のためインポートは残します
+import json
 
 from modules import shared
 from modules.devices import cpu
@@ -165,17 +165,13 @@ class FramepackIntegration:
         f1_vae = managers["vae"].get()
         f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get()
 
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-
-        # 1. args.promptsが辞書(dict)であることを前提に、最初のプロンプトを安全に取得する
         prompt_text = ""
-        prompts_schedule = args.prompts # args.promptsは既に辞書
+        prompts_schedule = args.prompts
 
         if not isinstance(prompts_schedule, dict) or not prompts_schedule:
             raise ValueError("Prompts are not in the expected dictionary format or are empty. Please check your Deforum prompt settings.")
 
         try:
-            # キー(フレーム番号)を整数に変換してソートし、最初のキーを取得
             first_frame_key = sorted(prompts_schedule.keys(), key=int)[0]
             prompt_text = prompts_schedule[first_frame_key]
         except (ValueError, IndexError) as e:
@@ -186,8 +182,6 @@ class FramepackIntegration:
 
         print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
         
-        # --- ▲▲▲ 修正完了 ▲▲▲ ---
-
         with model_on_device(f1_vae, self.device):
             init_image = np.array(Image.open(args.init_image).convert("RGB"))
             init_image = resize_and_center_crop(init_image, args.W, args.H)
@@ -212,26 +206,33 @@ class FramepackIntegration:
         history_latents = start_latent.clone()
         total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
 
-        with model_on_device(f1_transformer, self.device):
-            history_latents = history_latents.to(self.device)
-            llama_vec = llama_vec.to(self.device)
-            clip_l_pooler = clip_l_pooler.to(self.device)
-            
-            for i_section in range(total_sections):
-                shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
-                shared.state.job_no = i_section + 1
-                if shared.state.interrupted:
-                    break
-                    
-                generated_latents = sample_hunyuan(
-                    transformer=f1_transformer,
-                    initial_latent=history_latents[:, :, -1:],
-                    strength=framepack_f1_args.f1_image_strength,
-                    steps=framepack_f1_args.f1_generation_latent_size,
-                    llama_vec=llama_vec,
-                    clip_l_pooler=clip_l_pooler,
-                )
-                history_latents = torch.cat([history_latents, generated_latents], dim=2)
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+        # `with model_on_device(f1_transformer, self.device):` を削除し、
+        # Transformerの動的なメモリ管理に処理を任せます。
+
+        history_latents = history_latents.to(self.device)
+        llama_vec = llama_vec.to(self.device)
+        clip_l_pooler = clip_l_pooler.to(self.device)
+        
+        for i_section in range(total_sections):
+            shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
+            shared.state.job_no = i_section + 1
+            if shared.state.interrupted:
+                break
+                
+            # TransformerはCPU/Metaデバイス上にありますが、内部のDynamicSwapが
+            # 各層の実行時に自動でGPUとの間でデータをやり取りします。
+            generated_latents = sample_hunyuan(
+                transformer=f1_transformer,
+                initial_latent=history_latents[:, :, -1:],
+                strength=framepack_f1_args.f1_image_strength,
+                steps=framepack_f1_args.f1_generation_latent_size,
+                llama_vec=llama_vec,
+                clip_l_pooler=clip_l_pooler,
+            )
+            history_latents = torch.cat([history_latents, generated_latents], dim=2)
+        
+        # --- ▲▲▲ 修正完了 ▲▲▲ ---
 
         with model_on_device(f1_vae, self.device):
             final_video_frames = vae_decode(history_latents, f1_vae)
