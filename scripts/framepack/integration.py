@@ -69,7 +69,6 @@ class FramepackIntegration:
 
         flux_bfl_path = local_paths.get("flux_bfl")
 
-        # このImageEncoderManagerは変更しない
         class ImageEncoderManager:
             def __init__(self, device, model_path: str):
                 self.model = None
@@ -154,9 +153,6 @@ class FramepackIntegration:
         return components
 
     def setup_environment(self):
-        """
-        モデルの存在チェックからマネージャーの初期化まで、実行環境をセットアップする。
-        """
         print("Step 1: Checking for required local models...")
         models_exist, missing_repos = self.discovery.check_models_exist()
 
@@ -242,9 +238,10 @@ class FramepackIntegration:
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
             start_latent = vae_encode(init_image_np, f1_vae)
 
-        # --- ▼▼▼ 修正箇所：ここから ▼▼▼ ---
+        ### ▼▼▼【重要】この部分の修正がVRAMエラー解決の鍵です ▼▼▼ ###
         # VRAM枯渇を防ぐため、`with model_on_device(...)` を使わずにプロンプトをエンコードします。
-        # TextEncoderManagerに実装された動的スワッピング機能が、VRAMを効率的に使用してくれます。
+        # TextEncoderManagerに実装された`DynamicSwapInstaller`による動的スワッピング機能が、
+        # メモリを効率的に使用してくれます。
         
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
@@ -256,7 +253,7 @@ class FramepackIntegration:
             f1_tokenizer,
             f1_tokenizer_2,
         )
-        # --- ▲▲▲ 修正箇所：ここまで ▲▲▲ ---
+        ### ▲▲▲ 修正箇所はここまでです ▲▲▲ ###
 
         managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
@@ -305,7 +302,6 @@ class FramepackIntegration:
             print("Cleanup skipped: managers were not initialized.")
             return
 
-        # 各マネージャーからモデルを取得してCPUに移動
         f1_transformer_manager = self.managers.get("transformer")
         if f1_transformer_manager:
             f1_transformer = f1_transformer_manager.get_transformer()
@@ -332,11 +328,9 @@ class FramepackIntegration:
             if f1_text_encoder_2 is not None and hasattr(f1_text_encoder_2, 'parameters') and next(f1_text_encoder_2.parameters()).device.type != "meta":
                 f1_text_encoder_2.to(cpu)
 
-        # キャッシュのクリア
         gc.collect()
         torch.cuda.empty_cache()
 
-        # 標準のSDモデルをVRAMに戻す
         print("Restoring base SD model to VRAM...")
         if self.sdxl_components and self.sdxl_components["unet"]:
             move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
