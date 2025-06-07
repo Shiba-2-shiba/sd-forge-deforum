@@ -21,7 +21,7 @@ from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
 from .utils import resize_and_center_crop, save_bcthw_as_mp4
 from .discovery import FramepackDiscovery
 from scripts.diffusers import AutoencoderKLHunyuanVideo
-from transformers import LlamaTokenizerFast, CLIPTokenizer
+from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, CLIPImageProcessor
 
 
 class FramepackIntegration:
@@ -41,6 +41,8 @@ class FramepackIntegration:
         global_managers = {
             "transformer": None,
             "text_encoder": None,
+            "image_encoder": None,
+            "image_processor": None,
             "vae": None,
             "tokenizers": None,
         }
@@ -64,6 +66,39 @@ class FramepackIntegration:
             high_vram_mode=high_vram,
             model_path=text_encoder_path
         )
+
+        image_encoder_path = local_paths.get("text_encoder")
+
+        class ImageEncoderManager:
+            def __init__(self, device, model_path: str):
+                self.model = None
+                self.device = device
+                self.model_path = model_path
+            
+            def get(self):
+                if self.model is None:
+                    print(f"Loading Image Encoder from: {self.model_path}")
+                    self.model = CLIPVisionModelWithProjection.from_pretrained(
+                        self.model_path, subfolder="image_encoder", torch_dtype=torch.float16, local_files_only=True
+                    ).cpu()
+                    self.model.eval()
+                return self.model
+
+        class ImageProcessorManager:
+            def __init__(self, model_path: str):
+                self.processor = None
+                self.model_path = model_path
+
+            def get(self):
+                if self.processor is None:
+                    print(f"Loading Image Processor from: {self.model_path}")
+                    self.processor = CLIPImageProcessor.from_pretrained(
+                        self.model_path, subfolder="image_processor", local_files_only=True
+                    )
+                return self.processor
+
+        global_managers["image_encoder"] = ImageEncoderManager(self.device, model_path=image_encoder_path)
+        global_managers["image_processor"] = ImageProcessorManager(model_path=image_encoder_path)
 
         vae_path = local_paths.get("vae")
 
@@ -164,6 +199,8 @@ class FramepackIntegration:
         managers = self.managers
         f1_vae = managers["vae"].get()
         f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get()
+        f1_image_processor = managers["image_processor"].get()
+        f1_image_encoder = managers["image_encoder"].get()
 
         prompt_text = ""
         prompts_schedule = args.prompts
@@ -182,10 +219,22 @@ class FramepackIntegration:
 
         print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
         
+        pil_init_image = Image.open(args.init_image).convert("RGB")
+        
+        with model_on_device(f1_image_encoder, self.device):
+            image_pixels = f1_image_processor(images=pil_init_image, return_tensors="pt").pixel_values
+            image_pixels = image_pixels.to(self.device, dtype=torch.float16)
+            image_embeds = f1_image_encoder(image_pixels).image_embeds
+
+        h_latent, w_latent = args.H // 8, args.W // 8
+        y_indices = torch.arange(h_latent, device=self.device).unsqueeze(1).expand(h_latent, w_latent)
+        x_indices = torch.arange(w_latent, device=self.device).unsqueeze(0).expand(h_latent, w_latent)
+        indices_latents = torch.stack([y_indices, x_indices], dim=0).unsqueeze(0)
+        
         with model_on_device(f1_vae, self.device):
-            init_image = np.array(Image.open(args.init_image).convert("RGB"))
-            init_image = resize_and_center_crop(init_image, args.W, args.H)
-            start_latent = vae_encode(init_image, f1_vae)
+            init_image_np = np.array(pil_init_image)
+            init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
+            start_latent = vae_encode(init_image_np, f1_vae)
 
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
@@ -210,8 +259,6 @@ class FramepackIntegration:
         llama_vec = llama_vec.to(self.device)
         clip_l_pooler = clip_l_pooler.to(self.device)
 
-        # 乱数生成器を作成し、シードを設定して再現性を確保します。
-        # Deforumのシード設定（-1の場合はランダム）を尊重します。
         seed = args.seed if args.seed != -1 else torch.seed()
         generator = torch.Generator(device=self.device).manual_seed(int(seed))
         print(f"[FramePack F1] Using seed: {seed}")
@@ -222,10 +269,6 @@ class FramepackIntegration:
             if shared.state.interrupted:
                 break
                 
-            # TransformerはCPU/Metaデバイス上にありますが、内部のDynamicSwapが
-            # 各層の実行時に自動でGPUとの間でデータをやり取りします。
-            
-            # sample_hunyuanにUIで設定された幅(args.W)と高さ(args.H)を渡します。
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
@@ -234,8 +277,10 @@ class FramepackIntegration:
                 prompt_embeds=llama_vec,
                 prompt_poolers=clip_l_pooler,
                 generator=generator,
-                width=args.W,      # UIの幅設定を渡す
-                height=args.H,     # UIの高さ設定を渡す
+                width=args.W,
+                height=args.H,
+                image_embeds=image_embeds,
+                indices_latents=indices_latents,
             )
 
             history_latents = torch.cat([history_latents, generated_latents], dim=2)
@@ -258,6 +303,12 @@ class FramepackIntegration:
             f1_transformer = f1_transformer_manager.get_transformer()
             if f1_transformer is not None and hasattr(f1_transformer, 'parameters') and next(f1_transformer.parameters()).device.type != "meta":
                 f1_transformer.to(cpu)
+
+        f1_image_encoder_manager = self.managers.get("image_encoder")
+        if f1_image_encoder_manager:
+            f1_image_encoder = f1_image_encoder_manager.get()
+            if f1_image_encoder is not None and hasattr(f1_image_encoder, 'parameters') and next(f1_image_encoder.parameters()).device.type != "meta":
+                f1_image_encoder.to(cpu)
         
         f1_vae_manager = self.managers.get("vae")
         if f1_vae_manager:
