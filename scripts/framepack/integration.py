@@ -3,7 +3,7 @@ import torch
 import gc
 import numpy as np
 from PIL import Image
-import json # JSONをパースするためにインポート
+import json # 念のためインポートは残します
 
 from modules import shared
 from modules.devices import cpu
@@ -32,8 +32,6 @@ class FramepackIntegration:
         self.managers = None
         self.sdxl_components = None
         
-        # discoveryは引数なしで初期化。これにより、環境変数やデフォルトの
-        # Hugging Faceキャッシュパスを自動的に探索する。
         self.discovery = FramepackDiscovery()
 
     def _initialize_managers(self, local_paths: dict[str, str]):
@@ -52,7 +50,6 @@ class FramepackIntegration:
 
         print("Initializing managers with explicit model paths...")
         
-        # 各マネージャーに、discoveryが解決したモデルへの絶対パスを渡す
         transformer_path = local_paths.get("transformer")
         global_managers["transformer"] = TransformerManager(
             device=self.device, 
@@ -70,7 +67,6 @@ class FramepackIntegration:
 
         vae_path = local_paths.get("vae")
 
-        # VAEとTokenizerのためのシンプルなインナークラスマネージャー
         class VaeManager:
             def __init__(self, device, model_path: str):
                 self.model = None
@@ -121,12 +117,10 @@ class FramepackIntegration:
         """
         モデルの存在チェックからマネージャーの初期化まで、実行環境をセットアップする。
         """
-        # ステップ1：モデルがローカルにすべて存在するかチェック
         print("Step 1: Checking for required local models...")
         models_exist, missing_repos = self.discovery.check_models_exist()
 
         if not models_exist:
-            # モデルが見つからない場合、処理を中断し、ユーザーに手動ダウンロードを促すメッセージを表示
             error_message = (
                 "One or more FramePack F1 models are missing. Please download them manually before running Deforum.\n"
                 "Missing repositories:\n"
@@ -138,7 +132,6 @@ class FramepackIntegration:
         
         print("All required models found locally.")
 
-        # ステップ2：モデルの絶対ローカルパスを取得
         print("Step 2: Resolving local paths...")
         local_paths = {
             "transformer": self.discovery.get_local_path("transformer"),
@@ -151,11 +144,9 @@ class FramepackIntegration:
                 raise RuntimeError(f"Failed to resolve a valid directory path for component '{name}': {path}")
             print(f"  - Resolved {name}: {path}")
 
-        # ステップ3：解決済みのパスを使って、各マネージャーを初期化
         print("Step 3: Initializing model managers with resolved paths...")
         self.managers = self._initialize_managers(local_paths)
 
-        # ステップ4：メインのSDモデルをVRAMからオフロード
         print("Step 4: Offloading base SD model from VRAM...")
         self.sdxl_components = self._get_sdxl_components(shared.sd_model)
         if self.sdxl_components["unet"]:
@@ -176,25 +167,27 @@ class FramepackIntegration:
 
         # --- ▼▼▼ 修正箇所 ▼▼▼ ---
 
-        # 1. args.promptから単一プロンプトを取得し、存在をチェック
-        # Deforumのプロンプト入力は `args.prompts` (複数形) にJSON形式で格納される
-        # ここでは、そのJSONから最初のプロンプトを抜き出すか、単純なプロンプト `args.prompt` を使う
+        # 1. args.promptsが辞書(dict)であることを前提に、最初のプロンプトを安全に取得する
         prompt_text = ""
+        prompts_schedule = args.prompts # args.promptsは既に辞書
+
+        if not isinstance(prompts_schedule, dict) or not prompts_schedule:
+            raise ValueError("Prompts are not in the expected dictionary format or are empty. Please check your Deforum prompt settings.")
+
         try:
-            # まずJSON形式のプロンプトスケジュールを試す
-            prompts_schedule = json.loads(args.prompts)
-            first_frame = sorted(prompts_schedule.keys(), key=int)[0]
-            prompt_text = prompts_schedule[first_frame]
-        except (json.JSONDecodeError, TypeError, IndexError):
-            # JSONでなければ、単一の文字列プロンプトとして扱う
-            prompt_text = args.prompt
+            # キー(フレーム番号)を整数に変換してソートし、最初のキーを取得
+            first_frame_key = sorted(prompts_schedule.keys(), key=int)[0]
+            prompt_text = prompts_schedule[first_frame_key]
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Could not extract the first prompt from the schedule: {e}")
 
         if not prompt_text:
-            raise ValueError("A prompt is required for FramePack F1 generation. Please provide a prompt in the Deforum's prompt field.")
+            raise ValueError("The first prompt in the schedule is empty. Please provide a prompt.")
 
         print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
         
-        # 2. 初期画像とプロンプトのエンコード
+        # --- ▲▲▲ 修正完了 ▲▲▲ ---
+
         with model_on_device(f1_vae, self.device):
             init_image = np.array(Image.open(args.init_image).convert("RGB"))
             init_image = resize_and_center_crop(init_image, args.W, args.H)
@@ -204,7 +197,6 @@ class FramepackIntegration:
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         
         with model_on_device(f1_text_encoder, self.device), model_on_device(f1_text_encoder_2, self.device):
-            # 修正：単一の `prompt_text` をエンコーダに渡す
             llama_vec, clip_l_pooler = encode_prompt_conds(
                 prompt_text,
                 f1_text_encoder,
@@ -215,9 +207,6 @@ class FramepackIntegration:
         f1_text_encoder.to(cpu)
         f1_text_encoder_2.to(cpu)
 
-        # --- ▲▲▲ 修正完了 ▲▲▲ ---
-
-        # 3. ビデオ生成ループ
         managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
         history_latents = start_latent.clone()
@@ -234,7 +223,6 @@ class FramepackIntegration:
                 if shared.state.interrupted:
                     break
                     
-                # sample_hunyuanは単一プロンプトの埋め込みを受け取るので、ループの外でエンコードしたものを使い回す
                 generated_latents = sample_hunyuan(
                     transformer=f1_transformer,
                     initial_latent=history_latents[:, :, -1:],
@@ -245,7 +233,6 @@ class FramepackIntegration:
                 )
                 history_latents = torch.cat([history_latents, generated_latents], dim=2)
 
-        # 4. デコードとビデオ保存
         with model_on_device(f1_vae, self.device):
             final_video_frames = vae_decode(history_latents, f1_vae)
 
@@ -258,7 +245,6 @@ class FramepackIntegration:
             print("Cleanup skipped: managers were not initialized.")
             return
 
-        # 各マネージャーが管理するモデルを安全にCPUへオフロード
         f1_transformer = self.managers.get("transformer").get_transformer()
         if f1_transformer is not None and next(f1_transformer.parameters()).device.type != "meta":
             f1_transformer.to(cpu)
@@ -276,7 +262,6 @@ class FramepackIntegration:
         gc.collect()
         torch.cuda.empty_cache()
 
-        # メインのSDモデルをVRAMにリストア
         if self.sdxl_components["unet"]:
             move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
         if self.sdxl_components["vae"]:
