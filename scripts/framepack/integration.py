@@ -210,13 +210,11 @@ class FramepackIntegration:
         llama_vec = llama_vec.to(self.device)
         clip_l_pooler = clip_l_pooler.to(self.device)
 
-        # --- ▼▼▼ 修正箇所１：ジェネレータの作成 ▼▼▼ ---
         # 乱数生成器を作成し、シードを設定して再現性を確保します。
         # Deforumのシード設定（-1の場合はランダム）を尊重します。
         seed = args.seed if args.seed != -1 else torch.seed()
         generator = torch.Generator(device=self.device).manual_seed(int(seed))
         print(f"[FramePack F1] Using seed: {seed}")
-        # --- ▲▲▲ 修正完了 ▲▲▲ ---
         
         for i_section in range(total_sections):
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
@@ -227,7 +225,7 @@ class FramepackIntegration:
             # TransformerはCPU/Metaデバイス上にありますが、内部のDynamicSwapが
             # 各層の実行時に自動でGPUとの間でデータをやり取りします。
             
-            # --- ▼▼▼ 修正箇所２：ジェネレータを引数として渡す ▼▼▼ ---
+            # sample_hunyuanにUIで設定された幅(args.W)と高さ(args.H)を渡します。
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
@@ -235,9 +233,10 @@ class FramepackIntegration:
                 num_inference_steps=framepack_f1_args.f1_generation_latent_size,
                 prompt_embeds=llama_vec,
                 prompt_poolers=clip_l_pooler,
-                generator=generator,  # 作成したジェネレータを渡す
+                generator=generator,
+                width=args.W,      # UIの幅設定を渡す
+                height=args.H,     # UIの高さ設定を渡す
             )
-            # --- ▲▲▲ 修正完了 ▲▲▲ ---
 
             history_latents = torch.cat([history_latents, generated_latents], dim=2)
 
@@ -257,21 +256,21 @@ class FramepackIntegration:
         f1_transformer_manager = self.managers.get("transformer")
         if f1_transformer_manager:
             f1_transformer = f1_transformer_manager.get_transformer()
-            if f1_transformer is not None and next(f1_transformer.parameters()).device.type != "meta":
+            if f1_transformer is not None and hasattr(f1_transformer, 'parameters') and next(f1_transformer.parameters()).device.type != "meta":
                 f1_transformer.to(cpu)
         
         f1_vae_manager = self.managers.get("vae")
         if f1_vae_manager:
             f1_vae = f1_vae_manager.get()
-            if f1_vae is not None and next(f1_vae.parameters()).device.type != "meta":
+            if f1_vae is not None and hasattr(f1_vae, 'parameters') and next(f1_vae.parameters()).device.type != "meta":
                 f1_vae.to(cpu)
         
         f1_text_encoder_manager = self.managers.get("text_encoder")
         if f1_text_encoder_manager:
             f1_text_encoder, f1_text_encoder_2 = f1_text_encoder_manager.get_text_encoders()
-            if f1_text_encoder is not None and next(f1_text_encoder.parameters()).device.type != "meta":
+            if f1_text_encoder is not None and hasattr(f1_text_encoder, 'parameters') and next(f1_text_encoder.parameters()).device.type != "meta":
                 f1_text_encoder.to(cpu)
-            if f1_text_encoder_2 is not None and next(f1_text_encoder_2.parameters()).device.type != "meta":
+            if f1_text_encoder_2 is not None and hasattr(f1_text_encoder_2, 'parameters') and next(f1_text_encoder_2.parameters()).device.type != "meta":
                 f1_text_encoder_2.to(cpu)
 
         # キャッシュのクリア
