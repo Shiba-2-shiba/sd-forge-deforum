@@ -1,64 +1,76 @@
 import os
 from pathlib import Path
-from huggingface_hub import hf_hub_download, snapshot_download
 
 class FramepackDiscovery:
-    """Locate FramePack F1 models inside the HuggingFace cache"""
-
-    REQUIRED = {
-        # --- 修正箇所：コンポーネント名をキーにし、リポジトリIDを値にする ---
-        "transformer": "lllyasviel/FramePack_F1_I2V_HY_20250503",
-        "text_encoder": "hunyuanvideo-community/HunyuanVideo",
-        "vae": "hunyuanvideo-community/HunyuanVideo",
-        # flux_redux_bflは直接モデルとして使われないため、ここでは不要
+    """
+    Checks for the existence of FramePack F1 models and resolves their local paths.
+    """
+    # 必須コンポーネントと、それに対応するリポジトリIDおよび検証用ファイル
+    REQUIRED_COMPONENTS = {
+        "transformer": {
+            "repo_id": "lllyasviel/FramePack_F1_I2V_HY_20250503",
+            "check_file": "diffusion_pytorch_model.safetensors.index.json"
+        },
+        "text_encoder": {
+            "repo_id": "hunyuanvideo-community/HunyuanVideo",
+            "check_file": "text_encoder/config.json"
+        },
+        "vae": {
+            "repo_id": "hunyuanvideo-community/HunyuanVideo",
+            "check_file": "vae/config.json"
+        },
+        "flux_bfl": {
+            "repo_id": "lllyasviel/flux_redux_bfl",
+            "check_file": "model_index.json"
+        }
     }
 
     def __init__(self, cache_dir: str | None = None):
-        # HuggingFaceのキャッシュディレクトリを特定する
+        # HuggingFaceのキャッシュディレクトリを特定
         self.cache_dir = Path(cache_dir) if cache_dir else Path(os.getenv("HF_HOME", Path.home() / ".cache/huggingface"))
         self.hub_cache = self.cache_dir / "hub"
+        print(f"Discovery using cache directory: {self.hub_cache}")
 
-    def get_local_path(self, component_name: str) -> str | None:
-        """
-        指定されたコンポーネントのローカルパス（snapshotディレクトリ）を取得する
-        """
-        if component_name not in self.REQUIRED:
-            return None
-            
-        repo_id = self.REQUIRED[component_name]
-        
-        # models--namespace--repo-name 形式のディレクトリ名を作成
+    def _get_snapshot_path(self, repo_id: str) -> Path | None:
+        """指定されたリポジトリの最新のスナップショットディレクトリパスを取得する"""
         repo_path = self.hub_cache / f"models--{repo_id.replace('/', '--')}"
-        
         if not repo_path.is_dir():
-            print(f"Warning: Repo path does not exist: {repo_path}")
             return None
         
-        # snapshotsディレクトリ内の最新のスナップショット（ハッシュ）のパスを返す
         snapshots_dir = repo_path / "snapshots"
         if not snapshots_dir.is_dir():
-            print(f"Warning: Snapshots directory does not exist for {repo_id}")
             return None
-        
-        # 更新日時が最新のスナップショットディレクトリを取得
+            
         try:
-            latest_snapshot = max(snapshots_dir.iterdir(), key=os.path.getmtime)
-            return str(latest_snapshot)
+            # 更新日時が最新のスナップショットディレクトリを返す
+            return max(snapshots_dir.iterdir(), key=os.path.getmtime)
         except ValueError:
-            print(f"Warning: No snapshots found in {snapshots_dir}")
-            return None
+            return None # スナップショットが存在しない
 
-    # discover_models と validator はダウンロードと検証が完了しているので、
-    # この後の工程では直接使われない。念のため残しておく。
-    def discover_models(self) -> dict[str, bool]:
-        # (この関数の内容は変更なし)
-        results: dict[str, bool] = {"all_found": True}
-        for name, rel in self.REQUIRED.items():
-            path = self.cache_dir / ("models--" + rel.replace("/", "--"))
-            exists = path.exists()
-            results[name] = exists
-            if not exists:
-                results["all_found"] = False
-        # ...
-        pass
+    def check_models_exist(self) -> tuple[bool, list[str]]:
+        """
+        全ての必須モデルが存在するかチェックする。
+        戻り値: (全てのモデルが存在するかどうか, 見つからなかったリポジトリのリスト)
+        """
+        missing_repos = []
+        all_found = True
+        for component, info in self.REQUIRED_COMPONENTS.items():
+            repo_id = info["repo_id"]
+            snapshot_path = self._get_snapshot_path(repo_id)
+            
+            # スナップショットパス自体、またはその中のチェック用ファイルが存在しない場合
+            if snapshot_path is None or not (snapshot_path / info["check_file"]).exists():
+                print(f"Component '{component}' not found. Expected repo: {repo_id}")
+                all_found = False
+                if repo_id not in missing_repos:
+                    missing_repos.append(repo_id)
+        return all_found, missing_repos
+
+    def get_local_path(self, component_name: str) -> str | None:
+        """指定されたコンポーネントのローカルパス（snapshotディレクトリ）を取得する"""
+        if component_name not in self.REQUIRED_COMPONENTS:
+            return None
         
+        repo_id = self.REQUIRED_COMPONENTS[component_name]["repo_id"]
+        snapshot_path = self._get_snapshot_path(repo_id)
+        return str(snapshot_path) if snapshot_path and snapshot_path.is_dir() else None
