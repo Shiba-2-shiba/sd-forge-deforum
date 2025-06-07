@@ -209,6 +209,14 @@ class FramepackIntegration:
         history_latents = history_latents.to(self.device)
         llama_vec = llama_vec.to(self.device)
         clip_l_pooler = clip_l_pooler.to(self.device)
+
+        # --- ▼▼▼ 修正箇所１：ジェネレータの作成 ▼▼▼ ---
+        # 乱数生成器を作成し、シードを設定して再現性を確保します。
+        # Deforumのシード設定（-1の場合はランダム）を尊重します。
+        seed = args.seed if args.seed != -1 else torch.seed()
+        generator = torch.Generator(device=self.device).manual_seed(int(seed))
+        print(f"[FramePack F1] Using seed: {seed}")
+        # --- ▲▲▲ 修正完了 ▲▲▲ ---
         
         for i_section in range(total_sections):
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
@@ -219,14 +227,15 @@ class FramepackIntegration:
             # TransformerはCPU/Metaデバイス上にありますが、内部のDynamicSwapが
             # 各層の実行時に自動でGPUとの間でデータをやり取りします。
             
-            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+            # --- ▼▼▼ 修正箇所２：ジェネレータを引数として渡す ▼▼▼ ---
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
                 strength=framepack_f1_args.f1_image_strength,
-                num_inference_steps=framepack_f1_args.f1_generation_latent_size, # 引数名を修正
-                prompt_embeds=llama_vec,                                        # 引数名を修正
-                prompt_poolers=clip_l_pooler,                                   # 引数名を修正
+                num_inference_steps=framepack_f1_args.f1_generation_latent_size,
+                prompt_embeds=llama_vec,
+                prompt_poolers=clip_l_pooler,
+                generator=generator,  # 作成したジェネレータを渡す
             )
             # --- ▲▲▲ 修正完了 ▲▲▲ ---
 
