@@ -238,11 +238,10 @@ class FramepackIntegration:
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
             start_latent = vae_encode(init_image_np, f1_vae)
 
-        ### ▼▼▼【重要】この部分の修正がVRAMエラー解決の鍵です ▼▼▼ ###
-        # VRAM枯渇を防ぐため、`with model_on_device(...)` を使わずにプロンプトをエンコードします。
-        # TextEncoderManagerに実装された`DynamicSwapInstaller`による動的スワッピング機能が、
-        # メモリを効率的に使用してくれます。
+        ### ▼▼▼【重要】ここからが新しい修正箇所です ▼▼▼ ###
+        print("[FramePack F1] Encoding prompts and then forcefully clearing text encoders from VRAM...")
         
+        # 1. テキストエンコーダーを使ってプロンプト埋め込みを生成
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         
@@ -253,16 +252,32 @@ class FramepackIntegration:
             f1_tokenizer,
             f1_tokenizer_2,
         )
-        ### ▲▲▲ 修正箇所はここまでです ▲▲▲ ###
+        
+        # 2. 生成した埋め込みはGPUに残しつつ、不要になったテキストエンコーダーを完全に破棄
+        llama_vec = llama_vec.to(self.device)
+        clip_l_pooler = clip_l_pooler.to(self.device)
+        
+        print("[FramePack F1] Disposing text encoders...")
+        del f1_text_encoder
+        del f1_text_encoder_2
+        # マネージャーからも参照を断ち切る
+        if managers["text_encoder"]:
+            managers["text_encoder"].dispose_text_encoders()
 
+        # 3. VRAMを強制的にクリーンアップ
+        gc.collect()
+        torch.cuda.empty_cache()
+        print(f"[FramePack F1] VRAM cleaned. Free space: {get_cuda_free_memory_gb(self.device):.2f} GB")
+        ### ▲▲▲ 新しい修正はここまでです ▲▲▲ ###
+
+
+        # 4. 空いたVRAMを使ってTransformerモデルの生成ループを開始
         managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
         history_latents = start_latent.clone()
         total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
 
         history_latents = history_latents.to(self.device)
-        llama_vec = llama_vec.to(self.device)
-        clip_l_pooler = clip_l_pooler.to(self.device)
 
         seed = args.seed if args.seed != -1 else torch.seed()
         generator = torch.Generator(device=self.device).manual_seed(int(seed))
@@ -322,11 +337,8 @@ class FramepackIntegration:
         
         f1_text_encoder_manager = self.managers.get("text_encoder")
         if f1_text_encoder_manager:
-            f1_text_encoder, f1_text_encoder_2 = f1_text_encoder_manager.get_text_encoders()
-            if f1_text_encoder is not None and hasattr(f1_text_encoder, 'parameters') and next(f1_text_encoder.parameters()).device.type != "meta":
-                f1_text_encoder.to(cpu)
-            if f1_text_encoder_2 is not None and hasattr(f1_text_encoder_2, 'parameters') and next(f1_text_encoder_2.parameters()).device.type != "meta":
-                f1_text_encoder_2.to(cpu)
+            # dispose_text_encodersが呼ばれているはずなので、ここでは何もしない
+            pass
 
         gc.collect()
         torch.cuda.empty_cache()
