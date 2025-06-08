@@ -244,11 +244,8 @@ class HunyuanVideoFramepackTransformer3DModel(
         post_patch_width = width // p
         original_context_length = post_patch_num_frames * post_patch_height * post_patch_width
 
-        # ▼▼▼【重要】ここが修正箇所です ▼▼▼
-        # indices_latentsがNoneの場合、.unsqueeze().expand() を使わずに1Dテンソルを生成する
         if indices_latents is None:
             indices_latents = torch.arange(0, num_frames, device=hidden_states.device)
-        # ▲▲▲ 修正はここまでです ▲▲▲
 
         hidden_states = self.x_embedder(hidden_states)
         image_rotary_emb = self.rope(
@@ -258,6 +255,13 @@ class HunyuanVideoFramepackTransformer3DModel(
         latents_clean, latents_history_2x, latents_history_4x = self.clean_x_embedder(
             latents_clean, latents_history_2x, latents_history_4x
         )
+        
+        ### ▼▼▼【重要】ここからが修正箇所です ▼▼▼ ###
+        # 変数をNoneで初期化
+        image_rotary_emb_clean = None
+        image_rotary_emb_history_2x = None
+        image_rotary_emb_history_4x = None
+        ### ▲▲▲ 修正はここまでです ▲▲▲ ###
 
         if latents_clean is not None and indices_latents_clean is not None:
             image_rotary_emb_clean = self.rope(
