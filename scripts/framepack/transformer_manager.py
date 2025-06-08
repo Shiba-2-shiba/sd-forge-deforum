@@ -117,8 +117,8 @@ class TransformerManager:
                 # self.model_path から config のみを読み込む
                 # これにより、エラーの原因だった曖昧なパス解決を回避する
                 config = HunyuanVideoFramepackTransformer3DModel.load_config(self.model_path, local_files_only=True)
-                self.transformer = HunyuanVideoFramepackTransformer3DModel.from_config(config, torch_dtype=torch.float16)
-            self.transformer.to(torch.float16)
+                self.transformer = HunyuanVideoFramepackTransformer3DModel.from_config(config, torch_dtype=torch.bfloat16)
+            self.transformer.to(torch.bfloat16)
         except Exception as e:
             print(f"Failed to create a virtual transformer from config at {self.model_path}")
             traceback.print_exc()
@@ -163,10 +163,10 @@ class TransformerManager:
                 # --- 修正箇所：from_pretrained で self.model_path を直接使用 ---
                 self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
                     self.model_path,
-                    torch_dtype=torch.float16,
+                    torch_dtype=torch.bfloat16,
                     local_files_only=True # ネットワークアクセスを禁止
                 )
-                self.transformer.to(dtype=torch.float16)
+                self.transformer.to(dtype=torch.bfloat16)
             else:
                 # (LoRA / FP8 のロジック)
                 if self.next_state['fp8_enabled']:

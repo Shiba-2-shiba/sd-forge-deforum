@@ -81,7 +81,7 @@ class FramepackIntegration:
                     self.model = CLIPVisionModelWithProjection.from_pretrained(
                         self.model_path, 
                         subfolder="image_encoder", 
-                        torch_dtype=torch.float16, 
+                        torch_dtype=torch.bfloat16,
                         local_files_only=True,
                         ignore_mismatched_sizes=True
                     ).cpu()
@@ -116,7 +116,7 @@ class FramepackIntegration:
                 if self.model is None:
                     print(f"Loading VAE from: {self.model_path}")
                     self.model = AutoencoderKLHunyuanVideo.from_pretrained(
-                        self.model_path, subfolder="vae", torch_dtype=torch.float16, local_files_only=True
+                        self.model_path, subfolder="vae", torch_dtype=torch.bfloat16, local_files_only=True
                     ).cpu()
                     self.model.eval()
                 return self.model
@@ -225,7 +225,7 @@ class FramepackIntegration:
         
         with model_on_device(f1_image_encoder, self.device):
             image_pixels = f1_image_processor(images=pil_init_image, return_tensors="pt").pixel_values
-            image_pixels = image_pixels.to(self.device, dtype=torch.float16)
+            image_pixels = image_pixels.to(self.device, dtype=torch.bfloat16)
             image_embeds = f1_image_encoder(image_pixels).image_embeds
 
         h_latent, w_latent = args.H // 8, args.W // 8
