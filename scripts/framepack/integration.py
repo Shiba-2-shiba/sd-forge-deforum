@@ -228,7 +228,7 @@ class FramepackIntegration:
             image_pixels = image_pixels.to(self.device, dtype=torch.bfloat16)
             image_embeds = f1_image_encoder(image_pixels).image_embeds
 
-        # ▼▼▼【修正点1】不要な 'indices_latents' の生成ロジックを削除 ▼▼▼
+        # ▼▼▼【修正点1】誤った形式のindices_latentsを生成するコードを削除 ▼▼▼
         # h_latent, w_latent = args.H // 8, args.W // 8
         # y_indices = torch.arange(h_latent, device=self.device).unsqueeze(1).expand(h_latent, w_latent)
         # x_indices = torch.arange(w_latent, device=self.device).unsqueeze(0).expand(h_latent, w_latent)
@@ -275,6 +275,7 @@ class FramepackIntegration:
         seed = args.seed if args.seed != -1 else torch.seed()
         generator = torch.Generator(device=self.device).manual_seed(int(seed))
         print(f"[FramePack F1] Using seed: {seed}")
+        
         print(f"[DEBUG integration.py] Before sample_hunyuan call:")
         print(f"  - Target device for sampling (self.device): {self.device}")
         print(f"  - f1_transformer object device: {f1_transformer.device}")
@@ -291,7 +292,7 @@ class FramepackIntegration:
             if shared.state.interrupted:
                 break
 
-            # ▼▼▼【修正点2】'sample_hunyuan' の呼び出しから 'indices_latents' 引数を削除 ▼▼▼
+            # ▼▼▼【修正点2】indices_latents引数に `None` を明示的に渡す ▼▼▼
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
@@ -303,6 +304,7 @@ class FramepackIntegration:
                 width=args.W,
                 height=args.H,
                 image_embeds=image_embeds,
+                indices_latents=None, # 必須引数のため None を渡す
                 device=self.device,
             )
 
