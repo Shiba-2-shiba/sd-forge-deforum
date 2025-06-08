@@ -16,13 +16,8 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=1.0):
     return noise_cfg
 
 
-def fm_wrapper(transformer, t_scale=1000.0):
+def fm_wrapper(transformer, device, t_scale=1000.0):
     def k_model(x, sigma, **extra_args):
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-        # 1. transformerモデル自身がどのデバイスにいるかを取得し、変数`device`に格納します。
-        #    これにより、コードがCPU/GPUどちらで実行されても対応できます。
-        device = next(transformer.parameters()).device
-        # --- ▲▲▲ 修正箇所 ▲▲▲ ---
 
         dtype = extra_args['dtype']
         cfg_scale = extra_args['cfg_scale']
@@ -31,12 +26,9 @@ def fm_wrapper(transformer, t_scale=1000.0):
 
         original_dtype = x.dtype
         
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-        # 2. 入力テンソル`x`と`sigma`を、手順1で取得した`device`に明示的に転送します。
-        #    `x`はデータ型も同時に変換します。これがデバイス不整合エラーを直接解決します。
+        # Move input tensors to the specified device and dtype.
         x = x.to(device, dtype=dtype)
         sigma = sigma.to(device).float()
-        # --- ▲▲▲ 修正箇所 ▲▲▲ ---
 
         timestep = (sigma * t_scale).to(dtype)
 
