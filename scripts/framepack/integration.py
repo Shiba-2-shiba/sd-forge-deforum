@@ -299,7 +299,7 @@ class FramepackIntegration:
             shared.state.job_no = i_section + 1
             if shared.state.interrupted:
                 break
-                
+
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
@@ -312,6 +312,7 @@ class FramepackIntegration:
                 height=args.H,
                 image_embeds=image_embeds,
                 indices_latents=indices_latents,
+                device=self.device,
             )
 
             history_latents = torch.cat([history_latents, generated_latents], dim=2)

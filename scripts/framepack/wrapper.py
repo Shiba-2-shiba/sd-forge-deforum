@@ -27,13 +27,14 @@ def fm_wrapper(transformer, device, t_scale=1000.0):
         original_dtype = x.dtype
         
         # --- ▼▼▼【修正箇所】▼▼▼ ---
-        # 1. モデルのパラメータが実際に存在するデバイスを取得
-        model_device = next(transformer.parameters()).device
-        
-        # 2. 【デバッグログ】各デバイスの状態を出力
-        print(f"[DEBUG wrapper.py] Devices: input_x={x.device}, sampler_arg={device}, actual_model_params={model_device}")
+        # 1. 推論に使用するターゲットデバイスを明示的に使用
+        model_device = device
 
-        # 3. 入力テンソルをモデルと同じデバイスに移動
+        # 2. 【デバッグログ】各デバイスの状態を出力
+        actual_device = next(transformer.parameters()).device
+        print(f"[DEBUG wrapper.py] Devices: input_x={x.device}, sampler_arg={device}, actual_model_params={actual_device}")
+
+        # 3. 入力テンソルをターゲットデバイスに移動
         x = x.to(device=model_device, dtype=dtype)
         sigma = sigma.to(device=model_device).float()
         # --- ▲▲▲【修正箇所】▲▲▲ ---
