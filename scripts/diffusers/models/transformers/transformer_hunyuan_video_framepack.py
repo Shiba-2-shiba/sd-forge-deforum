@@ -50,6 +50,11 @@ class HunyuanVideoFramepackRotaryPosEmbed(nn.Module):
     def forward(self, frame_indices: torch.Tensor, height: int, width: int, device: torch.device):
         height = height // self.patch_size
         width = width // self.patch_size
+        
+        # 受け取ったframe_indicesが2D（[1, N]など）の場合、1Dに修正
+        if frame_indices.ndim == 2:
+            frame_indices = frame_indices.squeeze(0)
+            
         grid = torch.meshgrid(
             frame_indices.to(device=device, dtype=torch.float32),
             torch.arange(0, height, device=device, dtype=torch.float32),
@@ -239,8 +244,11 @@ class HunyuanVideoFramepackTransformer3DModel(
         post_patch_width = width // p
         original_context_length = post_patch_num_frames * post_patch_height * post_patch_width
 
+        # ▼▼▼【重要】ここが修正箇所です ▼▼▼
+        # indices_latentsがNoneの場合、.unsqueeze().expand() を使わずに1Dテンソルを生成する
         if indices_latents is None:
-            indices_latents = torch.arange(0, num_frames).unsqueeze(0).expand(batch_size, -1)
+            indices_latents = torch.arange(0, num_frames, device=hidden_states.device)
+        # ▲▲▲ 修正はここまでです ▲▲▲
 
         hidden_states = self.x_embedder(hidden_states)
         image_rotary_emb = self.rope(
