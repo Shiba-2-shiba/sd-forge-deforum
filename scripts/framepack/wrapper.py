@@ -26,9 +26,14 @@ def fm_wrapper(transformer, device, t_scale=1000.0):
 
         original_dtype = x.dtype
         
-        # Move input tensors to the specified device and dtype.
-        x = x.to(device, dtype=dtype)
-        sigma = sigma.to(device).float()
+        # --- ▼▼▼【修正箇所】▼▼▼ ---
+        # モデルのパラメータが実際に存在するデバイスを取得
+        model_device = next(transformer.parameters()).device
+        
+        # 入力テンソルをモデルと同じデバイスに移動
+        x = x.to(device=model_device, dtype=dtype)
+        sigma = sigma.to(device=model_device).float()
+        # --- ▲▲▲【修正箇所】▲▲▲ ---
 
         timestep = (sigma * t_scale).to(dtype)
 
