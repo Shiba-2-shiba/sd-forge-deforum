@@ -26,14 +26,13 @@ def fm_wrapper(transformer, device, t_scale=1000.0):
 
         original_dtype = x.dtype
         
-        # --- ▼▼▼【修正箇所】▼▼▼ ---
-        # モデルのパラメータが実際に存在するデバイスを取得
-        model_device = next(transformer.parameters()).device
-        
-        # 入力テンソルをモデルと同じデバイスに移動
-        x = x.to(device=model_device, dtype=dtype)
-        sigma = sigma.to(device=model_device).float()
-        # --- ▲▲▲【修正箇所】▲▲▲ ---
+        # Move input tensors to the requested device and dtype.
+        # The transformer parameters may reside on CPU when using dynamic
+        # swapping, so relying on their device would move tensors off the
+        # intended execution device.  Instead, respect the `device` argument
+        # passed to ``fm_wrapper`` which reflects the sampler's target device.
+        x = x.to(device, dtype=dtype)
+        sigma = sigma.to(device).float()
 
         timestep = (sigma * t_scale).to(dtype)
 
