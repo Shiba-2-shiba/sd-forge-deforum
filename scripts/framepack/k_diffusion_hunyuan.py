@@ -76,7 +76,7 @@ def sample_hunyuan(
 
     sigmas = get_flux_sigmas_from_mu(num_inference_steps, mu).to(device)
 
-    k_model = fm_wrapper(transformer)
+    k_model = fm_wrapper(transformer, device=device)
 
     if initial_latent is not None:
         sigmas = sigmas * strength
