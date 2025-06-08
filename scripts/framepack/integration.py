@@ -282,7 +282,18 @@ class FramepackIntegration:
         seed = args.seed if args.seed != -1 else torch.seed()
         generator = torch.Generator(device=self.device).manual_seed(int(seed))
         print(f"[FramePack F1] Using seed: {seed}")
-        
+        # --- ▼▼▼【デバッグログ追加】▼▼▼ ---
+        print(f"[DEBUG integration.py] Before sample_hunyuan call:")
+        print(f"  - Target device for sampling (self.device): {self.device}")
+        print(f"  - f1_transformer object device: {f1_transformer.device}")
+        try:
+            print(f"  - f1_transformer actual params device: {next(f1_transformer.parameters()).device}")
+        except StopIteration:
+            print("  - f1_transformer has no parameters loaded yet.")
+        print(f"  - history_latents device: {history_latents.device}")
+        print(f"  - prompt_embeds (llama_vec) device: {llama_vec.device}")
+        # --- ▲▲▲【デバッグログ追加】▲▲▲ ---
+
         for i_section in range(total_sections):
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
             shared.state.job_no = i_section + 1
