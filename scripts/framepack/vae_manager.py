@@ -23,7 +23,7 @@ class VaeManager:
         self.vae = AutoencoderKLHunyuanVideo.from_pretrained(
             self.model_path,
             subfolder='vae',
-            torch_dtype=torch.float16,
+            torch_dtype=torch.bfloat16,
             local_files_only=True
         ).cpu()
         self.vae.eval()

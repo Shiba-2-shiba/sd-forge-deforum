@@ -107,14 +107,14 @@ class TextEncoderManager:
             self.text_encoder = LlamaModel.from_pretrained(
                 self.model_path, 
                 subfolder='text_encoder', 
-                torch_dtype=torch.float16,
+                torch_dtype=torch.bfloat16,
                 local_files_only=True
             ).cpu()
             
             self.text_encoder_2 = CLIPTextModel.from_pretrained(
                 self.model_path, 
                 subfolder='text_encoder_2', 
-                torch_dtype=torch.float16,
+                torch_dtype=torch.bfloat16,
                 local_files_only=True
             ).cpu()
             
