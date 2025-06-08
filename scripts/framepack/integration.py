@@ -228,20 +228,19 @@ class FramepackIntegration:
             image_pixels = image_pixels.to(self.device, dtype=torch.bfloat16)
             image_embeds = f1_image_encoder(image_pixels).image_embeds
 
-        h_latent, w_latent = args.H // 8, args.W // 8
-        y_indices = torch.arange(h_latent, device=self.device).unsqueeze(1).expand(h_latent, w_latent)
-        x_indices = torch.arange(w_latent, device=self.device).unsqueeze(0).expand(h_latent, w_latent)
-        indices_latents = torch.stack([y_indices, x_indices], dim=0).unsqueeze(0)
+        # ▼▼▼【修正点1】不要な 'indices_latents' の生成ロジックを削除 ▼▼▼
+        # h_latent, w_latent = args.H // 8, args.W // 8
+        # y_indices = torch.arange(h_latent, device=self.device).unsqueeze(1).expand(h_latent, w_latent)
+        # x_indices = torch.arange(w_latent, device=self.device).unsqueeze(0).expand(h_latent, w_latent)
+        # indices_latents = torch.stack([y_indices, x_indices], dim=0).unsqueeze(0)
         
         with model_on_device(f1_vae, self.device):
             init_image_np = np.array(pil_init_image)
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
             start_latent = vae_encode(init_image_np, f1_vae)
 
-        ### ▼▼▼【重要】ここからが新しい修正箇所です ▼▼▼ ###
         print("[FramePack F1] Encoding prompts and then forcefully clearing text encoders from VRAM...")
         
-        # 1. テキストエンコーダーを使ってプロンプト埋め込みを生成
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         
@@ -253,25 +252,19 @@ class FramepackIntegration:
             f1_tokenizer_2,
         )
         
-        # 2. 生成した埋め込みはGPUに残しつつ、不要になったテキストエンコーダーを完全に破棄
         llama_vec = llama_vec.to(self.device)
         clip_l_pooler = clip_l_pooler.to(self.device)
         
         print("[FramePack F1] Disposing text encoders...")
         del f1_text_encoder
         del f1_text_encoder_2
-        # マネージャーからも参照を断ち切る
         if managers["text_encoder"]:
             managers["text_encoder"].dispose_text_encoders()
 
-        # 3. VRAMを強制的にクリーンアップ
         gc.collect()
         torch.cuda.empty_cache()
         print(f"[FramePack F1] VRAM cleaned. Free space: {get_cuda_free_memory_gb(self.device):.2f} GB")
-        ### ▲▲▲ 新しい修正はここまでです ▲▲▲ ###
 
-
-        # 4. 空いたVRAMを使ってTransformerモデルの生成ループを開始
         managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
         history_latents = start_latent.clone()
@@ -282,7 +275,6 @@ class FramepackIntegration:
         seed = args.seed if args.seed != -1 else torch.seed()
         generator = torch.Generator(device=self.device).manual_seed(int(seed))
         print(f"[FramePack F1] Using seed: {seed}")
-        # --- ▼▼▼【デバッグログ追加】▼▼▼ ---
         print(f"[DEBUG integration.py] Before sample_hunyuan call:")
         print(f"  - Target device for sampling (self.device): {self.device}")
         print(f"  - f1_transformer object device: {f1_transformer.device}")
@@ -292,7 +284,6 @@ class FramepackIntegration:
             print("  - f1_transformer has no parameters loaded yet.")
         print(f"  - history_latents device: {history_latents.device}")
         print(f"  - prompt_embeds (llama_vec) device: {llama_vec.device}")
-        # --- ▲▲▲【デバッグログ追加】▲▲▲ ---
 
         for i_section in range(total_sections):
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
@@ -300,6 +291,7 @@ class FramepackIntegration:
             if shared.state.interrupted:
                 break
 
+            # ▼▼▼【修正点2】'sample_hunyuan' の呼び出しから 'indices_latents' 引数を削除 ▼▼▼
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
@@ -311,7 +303,6 @@ class FramepackIntegration:
                 width=args.W,
                 height=args.H,
                 image_embeds=image_embeds,
-                indices_latents=indices_latents,
                 device=self.device,
             )
 
@@ -349,7 +340,6 @@ class FramepackIntegration:
         
         f1_text_encoder_manager = self.managers.get("text_encoder")
         if f1_text_encoder_manager:
-            # dispose_text_encodersが呼ばれているはずなので、ここでは何もしない
             pass
 
         gc.collect()
