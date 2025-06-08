@@ -53,7 +53,12 @@ def sample_hunyuan(
         callback=None,
         **kwargs,
 ):
-    device = device or transformer.device
+    final_device = device or transformer.device
+    print(f"[DEBUG k_diffusion_hunyuan.py] Sampling device resolved to: {final_device} (arg: {device}, fallback: {transformer.device})")
+    
+    # device引数を `final_device` に統一
+    device = final_device
+    # --- ▲▲▲【修正箇所 & デバッグログ追加】▲▲▲ ---
 
     if batch_size is None:
         batch_size = int(prompt_embeds.shape[0])
