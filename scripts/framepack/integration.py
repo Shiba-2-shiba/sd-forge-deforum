@@ -357,7 +357,7 @@ class FramepackIntegration:
                 generator=generator,
                 width=args.W, height=args.H,
                 image_embeddings=image_embeds,
-                indices_latents=None,
+                latent_indices=None,
                 device=self.device,
             )
             history_latents = torch.cat([history_latents, generated_latents], dim=2)
