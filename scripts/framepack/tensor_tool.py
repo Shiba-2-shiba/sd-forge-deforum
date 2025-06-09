@@ -4,6 +4,7 @@ import os
 import torch
 import einops
 import numpy as np
+import re
 from PIL import Image
 
 # Framepack F1のコア機能とヘルパー関数をインポート
@@ -30,18 +31,22 @@ from .memory import (
     offload_model_from_device_for_memory_preservation,
 )
 
+# [FIX 4] スケジュール文字列から数値を抽出するヘルパー関数
+def parse_schedule_string(schedule_str: str) -> float:
+    """ "0: (1.23)" のような文字列から数値部分を抽出する """
+    match = re.search(r'\((.*?)\)', schedule_str)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return 0.0  # デフォルト値
+    return 0.0
+
 @torch.no_grad()
 def execute_generation(managers: dict, device, args, anim_args, video_args, framepack_f1_args, root):
     """
     Deforumから呼び出される動画生成のメイン関数。
     UI関連のコードを排除し、ロジックのみに特化。
-
-    Args:
-        managers (dict): 初期化済みのモデルマネージャー群
-        device: 使用するPyTorchデバイス
-        args, anim_args, video_args: Deforumの各種設定
-        framepack_f1_args: Framepack F1の独自設定
-        root: Deforumのルートパス
     """
     print("[tensor_tool] Starting video generation process...")
 
@@ -53,7 +58,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     image_processor_manager = managers["image_processor"]
     tokenizer_manager = managers["tokenizers"]
     
-    # モデルのインスタンスを取得
     transformer = transformer_manager.get_transformer()
     text_encoder, text_encoder_2 = text_encoder_manager.get_text_encoders()
     vae = vae_manager.get_model()
@@ -64,20 +68,27 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     high_vram = transformer_manager.current_state['high_vram']
 
     # --- 2. パラメータの準備 ---
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★                  エラー修正箇所                  ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    prompt = args.positive_prompts  # [FIX 1] .prompt から .positive_prompts に修正
+    prompt = args.positive_prompts
     seed = args.seed
-    steps = args.steps               # [FIX 2] anim_args から args に修正
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    
+    steps = args.steps
     width, height = args.W, args.H
-    cfg = anim_args.strength_schedule 
-    gs = framepack_f1_args.get('distilled_guidance_scale', 6.0) 
-    rs = framepack_f1_args.get('guidance_rescale', 0.0) 
-    latent_window_size = framepack_f1_args.get('latent_window_size', 16)
-    use_vae_cache = framepack_f1_args.get('use_vae_cache', False)
+
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★                  エラー修正箇所 (複数)                 ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # [FIX 1, 2, 4] .get()の代わりにgetattrを使い、正しいオブジェクトから値を取得し、文字列をパースする
+    cfg = parse_schedule_string(anim_args.strength_schedule)
+    gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
+    
+    # [FIX 1] rsはargsに存在しないため、安全にデフォルト値を取得する
+    rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
+    
+    # [FIX 3] 正しいパラメータ名でアクセスする
+    latent_window_size = framepack_f1_args.f1_generation_latent_size
+    
+    # [FIX 1] use_vae_cacheはargsに存在しないため、安全にデフォルト値を取得する
+    use_vae_cache = getattr(framepack_f1_args, 'use_vae_cache', False)
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
     job_id = generate_timestamp()
     output_path = os.path.join(root.outputs_path, f"{job_id}.mp4")
@@ -90,7 +101,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     prompt_embeds, prompt_poolers = encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
     
-    # ネガティブプロンプトの処理
     n_prompt = args.negative_prompts if hasattr(args, 'negative_prompts') else ""
     n_prompt_embeds, n_prompt_poolers = encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
 
@@ -102,14 +112,12 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     # --- 4. 初期画像の準備とエンコード ---
     print("[tensor_tool] Processing initial image...")
-    # Deforumの `args.init_image` を使用
     init_image_path = args.init_image
     if not init_image_path or not os.path.exists(init_image_path):
         raise FileNotFoundError(f"Initial image not found at: {init_image_path}")
 
     input_image_pil = Image.open(init_image_path).convert("RGB")
     
-    # バケット解像度にリサイズ
     bucket_w, bucket_h = find_nearest_bucket(width, height)
     input_image_np = resize_and_center_crop(np.array(input_image_pil), bucket_w, bucket_h)
 
@@ -118,13 +126,12 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     
     img_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1.0
     img_pt = img_pt.permute(2, 0, 1).unsqueeze(0).to(device)
-    # フレーム次元を追加
     img_pt = img_pt.unsqueeze(2) 
     
     initial_latent = vae_encode(img_pt, vae)
     if not high_vram: unload_complete_models(vae)
 
-    # Image Encoder (CLIP Vision)
+    # Image Encoder
     if not high_vram: load_model_as_complete(image_encoder, target_device=device)
     
     image_embeddings_output = hf_clip_vision_encode(input_image_np, image_processor, image_encoder)
@@ -135,12 +142,12 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     # --- 5. サンプリングの実行 ---
     print("[tensor_tool] Starting sampling loop...")
     if not high_vram:
-        preserved_memory = framepack_f1_args.get('preserved_memory', 8.0)
+        # [FIX 1] 安全にデフォルト値を取得
+        preserved_memory = getattr(framepack_f1_args, 'preserved_memory', 8.0)
         move_model_to_device_with_memory_preservation(transformer, target_device=device, preserved_memory_gb=preserved_memory)
 
     rnd = torch.Generator(device=device).manual_seed(seed)
 
-    # 渡す引数を `sample_hunyuan` の仕様に合わせる
     sampler_kwargs = dict(
         transformer=transformer,
         sampler="unipc",
@@ -175,20 +182,16 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     print("[tensor_tool] Decoding latents and saving video...")
     if not high_vram: load_model_as_complete(vae, target_device=device)
 
-    # VAEキャッシュ機能の利用
     if use_vae_cache:
         print("[tensor_tool] Using VAE cache for decoding.")
         pixels = vae_decode_cache(generated_latents, vae)
     else:
-        # Diffusers標準のdecodeを使う場合
         pixels = vae.decode(generated_latents.to(vae.device, vae.dtype) / vae.config.scaling_factor).sample
 
     if not high_vram: unload_complete_models(vae)
 
-    # 元の解像度に戻す
     pixels = torch.nn.functional.interpolate(pixels, size=(height, width), mode='bilinear', align_corners=False)
 
-    # 動画として保存
     save_bcthw_as_mp4(pixels, output_path, fps=video_args.fps, crf=18)
     
     print(f"[tensor_tool] Video generation finished. Output saved to: {output_path}")
