@@ -172,9 +172,6 @@ class TransformerManager:
             return True
             
         except Exception as e:
-            # (エラーハンドリング)
-            
-        except Exception as e:
             print(f"Transformer reload failed: {e}")
             traceback.print_exc()
             self.current_state['is_loaded'] = False
