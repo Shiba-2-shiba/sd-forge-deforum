@@ -7,7 +7,7 @@ import gc
 
 # DynamicSwapInstallerをインポート
 from .hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
-from .memory import get_cuda_free_memory_gb, DynamicSwapInstaller
+from .memory import get_cuda_free_memory_gb, DynamicSwapInstaller, cpu
 
 class TransformerManager:
     """
@@ -131,26 +131,23 @@ class TransformerManager:
         device_map="auto"の代わりにDynamicSwapInstallerを使用する方式に変更。
         """
         try:
-            if self.transformer is not None:
-                # 既存のモデルを解放する処理
-                print("Disposing existing transformer model...")
-                self.current_state['is_loaded'] = False
-                del self.transformer
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            
+            # disposeメソッドが呼ばれているはずだが、念のためここでも解放処理
+            if self.transformer is not None and self._is_loaded():
+                self.dispose()
+
             print(f"[DEBUG] VRAM Free before Transformer reload: {get_cuda_free_memory_gb(self.device):.2f} GB")
             print("Reloading transformer...")
             print(f"Applying new settings from model path: {self.model_path}")
 
             # 1. device_map を使わずに、まずCPUにモデルをロードする
             print("Loading transformer to CPU first...")
-            self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
-                self.model_path,
-                torch_dtype=torch.bfloat16,
-                local_files_only=True
-            ).cpu()
+            # 仮想モデルの抜け殻を再利用
+            if self.transformer is None:
+                self._load_virtual_transformer()
+
+            self.transformer.load_state_dict(
+                torch.load(self._find_model_files()[0], map_location="cpu")
+            )
 
             self.transformer.eval() 
             self.transformer.high_quality_fp32_output_for_inference = True 
@@ -162,8 +159,8 @@ class TransformerManager:
                 self.transformer.to(self.device)
             else:
                 print("Low VRAM mode: Applying DynamicSwapInstaller...")
-                # device_map="auto"の代わりにDynamicSwapInstallerを適用 
-                DynamicSwapInstaller.install_model(self.transformer, device=self.device) [cite: 1, 2]
+                # device_map="auto"の代わりにDynamicSwapInstallerを適用
+                DynamicSwapInstaller.install_model(self.transformer, device=self.device)
             
             print(f"[DEBUG] VRAM Free after Transformer setup: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
@@ -183,3 +180,41 @@ class TransformerManager:
             traceback.print_exc()
             self.current_state['is_loaded'] = False
             return False
+
+    # ▼▼▼ 追加したdisposeメソッド ▼▼▼
+    def dispose(self):
+        """
+        Transformerモデルの後片付けを行う。
+        DynamicSwapInstallerのアンインストール、CPUへの移動、インスタンス削除を含む。
+        """
+        if not self.transformer or not self.current_state['is_loaded']:
+            return
+
+        print("Disposing Transformer model...")
+        
+        # 低VRAMモードでDynamicSwapInstallerを使用した場合、パッチを解除する
+        # この処理は self.current_state['high_vram'] が False の場合にのみ実行されるべき
+        if not self.current_state['high_vram']:
+            print("Uninstalling DynamicSwapInstaller patches from Transformer...")
+            DynamicSwapInstaller.uninstall_model(self.transformer)
+        
+        try:
+            # モデルをCPUに移動
+            self.transformer.to(cpu)
+        except Exception as e:
+            print(f"Could not move transformer to cpu: {e}")
+
+        # 参照を削除してガベージコレクションを促す
+        del self.transformer
+        self.transformer = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # 状態をリセット
+        self.current_state['is_loaded'] = False
+        
+        # 次のロードに備えて仮想モデルを再作成
+        self._load_virtual_transformer()
+
+        print("Transformer disposed.")
