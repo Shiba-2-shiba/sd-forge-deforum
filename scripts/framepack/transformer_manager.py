@@ -172,6 +172,8 @@ class TransformerManager:
                 self.transformer.to(self.device)
             else:
                 print("Low VRAM mode: Applying DynamicSwapInstaller...")
+                # DynamicSwapInstallerを適用する前に、metaデバイスからCPUにモデルを実体化させる
+                self.transformer.to(cpu) 
                 # device_map="auto"の代わりにDynamicSwapInstallerを適用
                 DynamicSwapInstaller.install_model(self.transformer, device=self.device)
             
