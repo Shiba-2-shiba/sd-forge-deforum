@@ -4,7 +4,7 @@ import torch
 import traceback
 from accelerate import init_empty_weights
 import gc
-from safetensors.torch import load_file  # ★ 変更: safetensorsローダーをインポート
+from safetensors.torch import load_file
 
 # DynamicSwapInstallerをインポート
 from .hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
@@ -120,7 +120,6 @@ class TransformerManager:
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(f"The specified model directory does not exist: {self.model_path}")
         
-        # ★ 変更なし: 元の実装でsafetensorsを正しく探せているので流用
         model_files = glob.glob(os.path.join(self.model_path, '**', '*.safetensors'), recursive=True)
         model_files = [f for f in model_files if os.path.basename(f).startswith('diffusion_pytorch_model')]
         
@@ -134,7 +133,6 @@ class TransformerManager:
         safetensorsローダーを使用し、シャーディングされたモデルに対応する方式に変更。
         """
         try:
-            # disposeメソッドが呼ばれているはずだが、念のためここでも解放処理
             if self.transformer is not None and self._is_loaded():
                 self.dispose()
 
@@ -142,7 +140,6 @@ class TransformerManager:
             print("Reloading transformer...")
             print(f"Applying new settings from model path: {self.model_path}")
 
-            # 1. 仮想モデルの抜け殻を準備
             if self.transformer is None:
                 self._load_virtual_transformer()
 
@@ -158,28 +155,29 @@ class TransformerManager:
                 shard_state_dict = load_file(file_path, device="cpu")
                 combined_state_dict.update(shard_state_dict)
 
+            # 3. まず、metaデバイス上のモデルをCPUに実体化する
+            print("Materializing model on CPU...")
+            self.transformer.to_empty(device="cpu")
+
+            # 4. 次に、実体化されたモデルに重みをロードする
             self.transformer.load_state_dict(combined_state_dict)
-            del combined_state_dict  # メモリを即時解放
+            del combined_state_dict
             print("State dict loaded successfully.")
 
             self.transformer.eval() 
             self.transformer.high_quality_fp32_output_for_inference = True 
             self.transformer.requires_grad_(False)
             
-            # 3. VRAMモードに応じてデバイス配置を決定する
+            # 5. VRAMモードに応じてデバイス配置を決定する
             if self.next_state['high_vram']:
                 print("High VRAM mode: Moving entire transformer to GPU...")
                 self.transformer.to(self.device)
             else:
                 print("Low VRAM mode: Applying DynamicSwapInstaller...")
-                # DynamicSwapInstallerを適用する前に、metaデバイスからCPUにモデルを実体化させる
-                self.transformer.to(cpu) 
-                # device_map="auto"の代わりにDynamicSwapInstallerを適用
                 DynamicSwapInstaller.install_model(self.transformer, device=self.device)
             
             print(f"[DEBUG] VRAM Free after Transformer setup: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
-            # Gradient Checkpointing 有効化
             if hasattr(self.transformer, 'enable_gradient_checkpointing'):
                 print("Enabling gradient checkpointing to conserve VRAM during inference...")
                 self.transformer.enable_gradient_checkpointing()
@@ -203,13 +201,11 @@ class TransformerManager:
         DynamicSwapInstallerのアンインストール、CPUへの移動、インスタンス削除を含む。
         """
         if not self.transformer or not self.current_state['is_loaded']:
-            # is_loadedでなくても、仮想モデルのインスタンスは存在しうるので解放を試みる
             if not self.transformer:
                 return
 
         print("Disposing Transformer model...")
         
-        # 低VRAMモードでDynamicSwapInstallerを使用した場合、パッチを解除する
         if self.current_state.get('is_loaded', False) and not self.current_state['high_vram']:
             print("Uninstalling DynamicSwapInstaller patches from Transformer...")
             DynamicSwapInstaller.uninstall_model(self.transformer)
@@ -220,17 +216,14 @@ class TransformerManager:
         except Exception as e:
             print(f"Could not move transformer to cpu: {e}")
 
-        # 参照を削除してガベージコレクションを促す
         del self.transformer
         self.transformer = None
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        # 状態をリセット
         self.current_state['is_loaded'] = False
         
-        # 次のロードに備えて仮想モデルを再作成
         self._load_virtual_transformer()
 
         print("Transformer disposed.")
