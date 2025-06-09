@@ -53,24 +53,13 @@ def sample_hunyuan(
         callback=None,
         **kwargs,
 ):
-    final_device = device or transformer.device
-    print(f"[DEBUG k_diffusion_hunyuan.py] Sampling device resolved to: {final_device} (arg: {device}, fallback: {transformer.device})")
-    
-    # device引数を `final_device` に統一
-    device = final_device
-    # --- ▲▲▲【修正箇所 & デバッグログ追加】▲▲▲ ---
+    device = device or transformer.device
 
     if batch_size is None:
         batch_size = int(prompt_embeds.shape[0])
 
     latents = torch.randn((batch_size, 16, (frames + 3) // 4, height // 8, width // 8), generator=generator, device=generator.device).to(device=device, dtype=torch.float32)
-    # --- ▼▼▼ デバッグログ追加 ▼▼▼ ---
-    print(f"[DEBUG] sample_hunyuan tensor shapes:")
-    if initial_latent is not None:
-        print(f"[DEBUG]   - initial_latent shape: {initial_latent.shape}")
-    print(f"[DEBUG]   - noise latents shape:    {latents.shape}")
-    # --- ▲▲▲ ログ追加完了 ▲▲▲ ---
-    
+
     B, C, T, H, W = latents.shape
     seq_length = T * H * W // 4
 
@@ -81,7 +70,7 @@ def sample_hunyuan(
 
     sigmas = get_flux_sigmas_from_mu(num_inference_steps, mu).to(device)
 
-    k_model = fm_wrapper(transformer, device=device)
+    k_model = fm_wrapper(transformer)
 
     if initial_latent is not None:
         sigmas = sigmas * strength
