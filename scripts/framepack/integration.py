@@ -12,6 +12,7 @@ from .memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
     get_cuda_free_memory_gb,
+    DynamicSwapInstaller, # 低VRAMモード用にインポート
 )
 from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
@@ -23,6 +24,132 @@ from scripts.diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, SiglipImageProcessor
 from .clip_vision import hf_clip_vision_encode
 
+# ▼▼▼ マネージャークラスを独立して定義 ▼▼▼
+
+class VaeManager:
+    """Hunyuan VAEのロードとライフサイクルを管理するクラス"""
+    def __init__(self, device, high_vram_mode: bool, model_path: str):
+        self.model = None
+        self.device = device
+        self.high_vram_mode = high_vram_mode
+        self.is_loaded = False
+        if not model_path or not os.path.isdir(model_path):
+            raise FileNotFoundError(f"VaeManager received an invalid model_path: {model_path}")
+        self.model_path = model_path
+
+    def _load_model(self):
+        print(f"Loading Hunyuan VAE from: {self.model_path}")
+        self.model = AutoencoderKLHunyuanVideo.from_pretrained(
+            self.model_path,
+            subfolder='vae',
+            torch_dtype=torch.bfloat16,
+            local_files_only=True
+        ).cpu()
+        self.model.eval()
+        self.model.requires_grad_(False)
+        self.is_loaded = True
+        print("Hunyuan VAE loaded.")
+
+    def get_model(self):
+        if not self.is_loaded:
+            self._load_model()
+        return self.model
+
+    def dispose(self):
+        if self.model is not None:
+            print("Disposing Hunyuan VAE...")
+            self.model.to(cpu)
+            del self.model
+            self.model = None
+            self.is_loaded = False
+
+class ImageEncoderManager:
+    """Image Encoder (CLIP Vision)のロードとライフサイクルを管理するクラス"""
+    def __init__(self, device, model_path: str):
+        self.model = None
+        self.device = device
+        self.is_loaded = False
+        if not model_path or not os.path.isdir(model_path):
+            raise FileNotFoundError(f"ImageEncoderManager received an invalid model_path: {model_path}")
+        self.model_path = model_path
+
+    def get_model(self):
+        if not self.is_loaded:
+            print(f"Loading Image Encoder from: {self.model_path}")
+            self.model = CLIPVisionModelWithProjection.from_pretrained(
+                self.model_path, 
+                subfolder="image_encoder", 
+                torch_dtype=torch.bfloat16,
+                local_files_only=True,
+                ignore_mismatched_sizes=True
+            ).cpu()
+            self.model.eval()
+            self.is_loaded = True
+        return self.model
+
+    def dispose(self):
+        if self.model is not None:
+            print("Disposing Image Encoder...")
+            self.model.to(cpu)
+            del self.model
+            self.model = None
+            self.is_loaded = False
+
+class ImageProcessorManager:
+    """Image Processorのロードとライフサイクルを管理するクラス"""
+    def __init__(self, model_path: str):
+        self.processor = None
+        self.is_loaded = False
+        if not model_path or not os.path.isdir(model_path):
+            raise FileNotFoundError(f"ImageProcessorManager received an invalid model_path: {model_path}")
+        self.model_path = model_path
+
+    def get_processor(self):
+        if not self.is_loaded:
+            print(f"Loading Image Processor from: {self.model_path}")
+            self.processor = SiglipImageProcessor.from_pretrained(
+                self.model_path, subfolder="feature_extractor", local_files_only=True
+            )
+            self.is_loaded = True
+        return self.processor
+
+    def dispose(self):
+        # Pythonオブジェクトなのでdelだけでよい
+        if self.processor is not None:
+            print("Disposing Image Processor...")
+            del self.processor
+            self.processor = None
+            self.is_loaded = False
+
+class TokenizerManager:
+    """Tokenizerのロードとライフサイクルを管理するクラス"""
+    def __init__(self, model_path: str):
+        self.tokenizer = None
+        self.tokenizer_2 = None
+        self.is_loaded = False
+        if not model_path or not os.path.isdir(model_path):
+            raise FileNotFoundError(f"TokenizerManager received an invalid model_path: {model_path}")
+        self.model_path = model_path
+
+    def get_tokenizers(self):
+        if not self.is_loaded:
+            print(f"Loading Tokenizers from: {self.model_path}")
+            self.tokenizer = LlamaTokenizerFast.from_pretrained(self.model_path, subfolder="tokenizer", local_files_only=True)
+            self.tokenizer_2 = CLIPTokenizer.from_pretrained(self.model_path, subfolder="tokenizer_2", local_files_only=True)
+            self.is_loaded = True
+        return self.tokenizer, self.tokenizer_2
+
+    def dispose(self):
+        if self.tokenizer is not None:
+            print("Disposing Tokenizers...")
+            del self.tokenizer
+            del self.tokenizer_2
+            self.tokenizer = None
+            self.tokenizer_2 = None
+            self.is_loaded = False
+
+# ▲▲▲ ここまで ▲▲▲
+
 
 class FramepackIntegration:
     """FramePack F1のモデル管理とビデオ生成を統合する司令塔クラス。"""
@@ -31,111 +158,49 @@ class FramepackIntegration:
         self.device = device
         self.managers = None
         self.sdxl_components = None
-        
         self.discovery = FramepackDiscovery()
 
     def _initialize_managers(self, local_paths: dict[str, str]):
-        """
-        解決済みの絶対パスを受け取り、各モデルマネージャーを初期化する。
-        """
-        global_managers = {
-            "transformer": None,
-            "text_encoder": None,
-            "image_encoder": None,
-            "image_processor": None,
-            "vae": None,
-            "tokenizers": None,
-        }
-
+        """解決済みの絶対パスを受け取り、各モデルマネージャーを初期化する。"""
+        global_managers = {}
         free_mem_gb = get_cuda_free_memory_gb(self.device)
         high_vram = free_mem_gb > 16
 
         print("Initializing managers with explicit model paths...")
         
-        transformer_path = local_paths.get("transformer")
+        # ▼▼▼ 外部で定義したマネージャークラスをインスタンス化 ▼▼▼
         global_managers["transformer"] = TransformerManager(
             device=self.device, 
             high_vram_mode=high_vram, 
             use_f1_model=True,
-            model_path=transformer_path
+            model_path=local_paths.get("transformer")
         )
 
-        text_encoder_path = local_paths.get("text_encoder")
         global_managers["text_encoder"] = TextEncoderManager(
             device=self.device, 
             high_vram_mode=high_vram,
-            model_path=text_encoder_path
+            model_path=local_paths.get("text_encoder")
+        )
+        
+        global_managers["image_encoder"] = ImageEncoderManager(
+            device=self.device, 
+            model_path=local_paths.get("flux_bfl")
         )
 
-        flux_bfl_path = local_paths.get("flux_bfl")
+        global_managers["image_processor"] = ImageProcessorManager(
+            model_path=local_paths.get("flux_bfl")
+        )
 
-        class ImageEncoderManager:
-            def __init__(self, device, model_path: str):
-                self.model = None
-                self.device = device
-                self.model_path = model_path
-            
-            def get(self):
-                if self.model is None:
-                    print(f"Loading Image Encoder from: {self.model_path}")
-                    self.model = CLIPVisionModelWithProjection.from_pretrained(
-                        self.model_path, 
-                        subfolder="image_encoder", 
-                        torch_dtype=torch.bfloat16,
-                        local_files_only=True,
-                        ignore_mismatched_sizes=True
-                    ).cpu()
-                    self.model.eval()
-                return self.model
-
-        class ImageProcessorManager:
-            def __init__(self, model_path: str):
-                self.processor = None
-                self.model_path = model_path
-
-            def get(self):
-                if self.processor is None:
-                    print(f"Loading Image Processor from: {self.model_path}")
-                    self.processor = SiglipImageProcessor.from_pretrained(
-                        self.model_path, subfolder="feature_extractor", local_files_only=True
-                    )
-                return self.processor
-
-        global_managers["image_encoder"] = ImageEncoderManager(self.device, model_path=flux_bfl_path)
-        global_managers["image_processor"] = ImageProcessorManager(model_path=flux_bfl_path)
-
-        vae_path = local_paths.get("vae")
-
-        class VaeManager:
-            def __init__(self, device, model_path: str):
-                self.model = None
-                self.device = device
-                self.model_path = model_path
-
-            def get(self):
-                if self.model is None:
-                    print(f"Loading VAE from: {self.model_path}")
-                    self.model = AutoencoderKLHunyuanVideo.from_pretrained(
-                        self.model_path, subfolder="vae", torch_dtype=torch.bfloat16, local_files_only=True
-                    ).cpu()
-                    self.model.eval()
-                return self.model
-
-        class TokenizerManager:
-            def __init__(self, model_path: str):
-                self.tokenizer = None
-                self.tokenizer_2 = None
-                self.model_path = model_path
-
-            def get(self):
-                if self.tokenizer is None:
-                    print(f"Loading Tokenizers from: {self.model_path}")
-                    self.tokenizer = LlamaTokenizerFast.from_pretrained(self.model_path, subfolder="tokenizer", local_files_only=True)
-                    self.tokenizer_2 = CLIPTokenizer.from_pretrained(self.model_path, subfolder="tokenizer_2", local_files_only=True)
-                return self.tokenizer, self.tokenizer_2
-
-        global_managers["vae"] = VaeManager(self.device, model_path=vae_path)
-        global_managers["tokenizers"] = TokenizerManager(model_path=text_encoder_path)
+        global_managers["vae"] = VaeManager(
+            device=self.device, 
+            high_vram_mode=high_vram,
+            model_path=local_paths.get("vae")
+        )
+        
+        global_managers["tokenizers"] = TokenizerManager(
+            model_path=local_paths.get("text_encoder")
+        )
+        # ▲▲▲ ここまで ▲▲▲
         
         print("All managers initialized.")
         return global_managers
@@ -200,12 +265,11 @@ class FramepackIntegration:
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
         managers = self.managers
         
-        ### ▼▼▼ NameError修正のため追加したブロック ▼▼▼ ###
         # 各マネージャーからモデルやプロセッサーのインスタンスを取得します。
-        f1_vae = managers["vae"].get()
-        f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get()
-        f1_image_processor = managers["image_processor"].get()
-        f1_image_encoder = managers["image_encoder"].get()
+        f1_vae = managers["vae"].get_model()
+        f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get_tokenizers()
+        f1_image_processor = managers["image_processor"].get_processor()
+        f1_image_encoder = managers["image_encoder"].get_model()
 
         # Deforumのプロンプトスケジュールから最初のプロンプトを取得します。
         prompt_text = ""
@@ -213,7 +277,6 @@ class FramepackIntegration:
         if not isinstance(prompts_schedule, dict) or not prompts_schedule:
             raise ValueError("Prompts are not in the expected dictionary format or are empty. Please check your Deforum prompt settings.")
         try:
-            # フレーム番号でソートして最初のキーを取得
             first_frame_key = sorted(prompts_schedule.keys(), key=int)[0]
             prompt_text = prompts_schedule[first_frame_key]
         except (ValueError, IndexError) as e:
@@ -222,11 +285,9 @@ class FramepackIntegration:
             raise ValueError("The first prompt in the schedule is empty. Please provide a prompt.")
         
         print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
-        ### ▲▲▲ ここまでを追加 ▲▲▲ ###
 
         pil_init_image = Image.open(args.init_image).convert("RGB")
         
-        ### ▼ デバッグログ追加 ▼ ###
         print(f"[DEBUG] Initial VRAM Free: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
         try:
@@ -276,8 +337,7 @@ class FramepackIntegration:
         print(f"[DEBUG] Prompt conditioning created. llama_vec shape: {llama_vec.shape}, clip_l_pooler shape: {clip_l_pooler.shape}")
         
         print("[FramePack F1] Disposing text encoders...")
-        del f1_text_encoder, f1_text_encoder_2
-        if managers["text_encoder"]: managers["text_encoder"].dispose_text_encoders()
+        managers["text_encoder"].dispose_text_encoders()
 
         gc.collect(); torch.cuda.empty_cache()
         print(f"[FramePack F1] VRAM cleaned. Free space: {get_cuda_free_memory_gb(self.device):.2f} GB")
@@ -348,27 +408,26 @@ class FramepackIntegration:
             print("Cleanup skipped: managers were not initialized.")
             return
 
+        print("Cleaning up FramePack F1 environment...")
+        
+        # ▼▼▼ 各マネージャーのdisposeを呼び出すように修正 ▼▼▼
+        # accelerateで管理されているtransformerは特別扱い
         f1_transformer_manager = self.managers.get("transformer")
-        if f1_transformer_manager:
-            f1_transformer = f1_transformer_manager.get_transformer()
-            if f1_transformer is not None and hasattr(f1_transformer, 'parameters') and next(f1_transformer.parameters()).device.type != "meta":
-                f1_transformer.to(cpu)
-
-        f1_image_encoder_manager = self.managers.get("image_encoder")
-        if f1_image_encoder_manager:
-            f1_image_encoder = f1_image_encoder_manager.get()
-            if f1_image_encoder is not None and hasattr(f1_image_encoder, 'parameters') and next(f1_image_encoder.parameters()).device.type != "meta":
-                f1_image_encoder.to(cpu)
+        if f1_transformer_manager and f1_transformer_manager.transformer is not None:
+            print("Deleting Transformer instance managed by Accelerate...")
+            del f1_transformer_manager.transformer
+            f1_transformer_manager.transformer = None
         
-        f1_vae_manager = self.managers.get("vae")
-        if f1_vae_manager:
-            f1_vae = f1_vae_manager.get()
-            if f1_vae is not None and hasattr(f1_vae, 'parameters') and next(f1_vae.parameters()).device.type != "meta":
-                f1_vae.to(cpu)
+        # 他コンポーネントはdisposeを呼び出す
+        for manager_name, manager in self.managers.items():
+            if manager_name == "transformer":
+                continue # 上で処理済み
+            if manager and hasattr(manager, 'dispose'):
+                manager.dispose()
+        # ▲▲▲ ここまで ▲▲▲
         
-        f1_text_encoder_manager = self.managers.get("text_encoder")
-        if f1_text_encoder_manager:
-            pass
+        # 全マネージャーへの参照を削除
+        self.managers = None
 
         gc.collect()
         torch.cuda.empty_cache()
