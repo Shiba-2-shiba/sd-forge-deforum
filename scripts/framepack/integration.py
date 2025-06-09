@@ -17,11 +17,10 @@ from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
 from .k_diffusion_hunyuan import sample_hunyuan
 from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
-from .utils import resize_and_center_crop, save_bcthw_as_mp4
+from .utils import resize_and_center_crop, save_bcthw_as_mp4, numpy2pytorch
 from .discovery import FramepackDiscovery
 from scripts.diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, SiglipImageProcessor
-# ▼▼▼【修正点1】 clip_vision.py から hf_clip_vision_encode をインポート ▼▼▼
 from .clip_vision import hf_clip_vision_encode
 
 
@@ -226,7 +225,6 @@ class FramepackIntegration:
         
         try:
             move_model_to_device_with_memory_preservation(f1_image_encoder, self.device)
-            # ▼▼▼【修正点2】 hf_clip_vision_encode を使用して image_embeds を生成 ▼▼▼
             # hf_clip_vision_encode は numpy 配列を要求するため変換
             init_image_np_for_clip = np.array(pil_init_image)
             image_encoder_output = hf_clip_vision_encode(
@@ -235,7 +233,6 @@ class FramepackIntegration:
                 image_encoder=f1_image_encoder
             )
             image_embeds = image_encoder_output.image_embeds
-            # ▲▲▲ 修正ここまで ▲▲▲
         finally:
             offload_model_from_device_for_memory_preservation(f1_image_encoder, self.device)
 
@@ -243,7 +240,9 @@ class FramepackIntegration:
             move_model_to_device_with_memory_preservation(f1_vae, self.device)
             init_image_np = np.array(pil_init_image)
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
-            start_latent = vae_encode(init_image_np, f1_vae)
+            # NumPy配列をPyTorchテンソルに変換
+            init_tensor = numpy2pytorch([init_image_np])
+            start_latent = vae_encode(init_tensor, f1_vae)
         finally:
             offload_model_from_device_for_memory_preservation(f1_vae, self.device)
 
