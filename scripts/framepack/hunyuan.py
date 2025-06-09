@@ -106,17 +106,6 @@ def vae_decode(latents, vae, image_mode=False):
 
 @torch.no_grad()
 def vae_encode(image, vae):
-    # --- ★★★ ここから修正箇所 ★★★ ---
-    # 入力されたimage (NumPy配列) をPyTorchテンソルに変換・整形する
-    # 1. NumPy配列からテンソルに変換し、値を[-1, 1]に正規化
-    image_tensor = torch.from_numpy(image).float() / 127.5 - 1.0
-    # 2. 次元を (高さ, 幅, チャンネル) から (チャンネル, 高さ, 幅) に変更
-    image_tensor = image_tensor.permute(2, 0, 1)
-    # 3. バッチ次元を追加 (1, C, H, W)
-    image_tensor = image_tensor.unsqueeze(0)
-    # ★★★ フレーム次元を追加して5次元テンソル (1, C, 1, H, W) に変換 ★★★
-    image_tensor = image_tensor.unsqueeze(2)
-    # 5DテンソルをVAEに渡すため、正常に動作する
-    latents = vae.encode(image_tensor.to(device=vae.device, dtype=vae.dtype)).latent_dist.sample()
+    latents = vae.encode(image.to(device=vae.device, dtype=vae.dtype)).latent_dist.sample()
     latents = latents * vae.config.scaling_factor
-    return latents.cpu()
+    return latents
