@@ -140,7 +140,6 @@ class TokenizerManager:
 
 class FramepackIntegration:
     """FramePack F1のモデル管理とビデオ生成を統合する司令塔クラス。"""
-    # __init__ から generate_video まで変更なしのため省略
     def __init__(self, device):
         self.device = device
         self.managers = None
@@ -272,8 +271,13 @@ class FramepackIntegration:
                 feature_extractor=f1_image_processor,
                 image_encoder=f1_image_encoder
             )
-            image_embeds = image_encoder_output.image_embeds
-            print(f"[DEBUG] image_embeds created. Shape: {image_embeds.shape}, Device: {image_embeds.device}")
+            
+            # ★★★★★ ここからが修正箇所 (1/2) ★★★★★
+            # .image_embeds (512次元) の代わりに .last_hidden_state (1152次元) を使用する
+            image_embeddings_for_transformer = image_encoder_output.last_hidden_state
+            print(f"[DEBUG] image_embeddings_for_transformer created. Shape: {image_embeddings_for_transformer.shape}, Device: {image_embeddings_for_transformer.device}")
+            # ★★★★★ ここまでが修正箇所 (1/2) ★★★★★
+
             print(f"[DEBUG] VRAM Free after Image Encoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
         finally:
             offload_model_from_device_for_memory_preservation(f1_image_encoder, self.device)
@@ -338,7 +342,7 @@ class FramepackIntegration:
         print(f"  - history_latents (initial_latent): Shape={history_latents.shape}, Dtype={history_latents.dtype}, Device={history_latents.device}")
         print(f"  - prompt_embeds (llama_vec): Shape={llama_vec.shape}, Dtype={llama_vec.dtype}, Device={llama_vec.device}")
         print(f"  - prompt_poolers (clip_l_pooler): Shape={clip_l_pooler.shape}, Dtype={clip_l_pooler.dtype}, Device={clip_l_pooler.device}")
-        print(f"  - image_embeds: Shape={image_embeds.shape}, Dtype={image_embeds.dtype}, Device={image_embeds.device}")
+        print(f"  - image_embeddings: Shape={image_embeddings_for_transformer.shape}, Dtype={image_embeddings_for_transformer.dtype}, Device={image_embeddings_for_transformer.device}")
         print(f"  - VRAM Free before sampling loop: {get_cuda_free_memory_gb(self.device):.2f} GB")
         print("="*40 + "\n")
 
@@ -347,6 +351,8 @@ class FramepackIntegration:
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
             shared.state.job_no = i_section + 1
 
+            # ★★★★★ ここからが修正箇所 (2/2) ★★★★★
+            # transformerに正しい特徴量を渡す
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
@@ -356,10 +362,12 @@ class FramepackIntegration:
                 prompt_poolers=clip_l_pooler,
                 generator=generator,
                 width=args.W, height=args.H,
-                image_embeddings=image_embeds,
+                image_embeddings=image_embeddings_for_transformer,
                 latent_indices=None,
                 device=self.device,
             )
+            # ★★★★★ ここまでが修正箇所 (2/2) ★★★★★
+            
             history_latents = torch.cat([history_latents, generated_latents], dim=2)
 
         try:
@@ -384,17 +392,13 @@ class FramepackIntegration:
             print("Cleanup skipped: managers were not initialized.")
             return
 
-        # ▼▼▼ 修正箇所 ▼▼▼
         print("Cleaning up FramePack F1 environment...")
         
-        # 全てのマネージャーのdisposeを呼び出すことで、責務を各マネージャーに委譲する
         for manager_name, manager in self.managers.items():
             if manager and hasattr(manager, 'dispose'):
                 print(f"Disposing manager: {manager_name}...")
                 manager.dispose()
-        # ▲▲▲ ここまで ▲▲▲
         
-        # 全マネージャーへの参照を削除
         self.managers = None
 
         gc.collect()
@@ -409,38 +413,3 @@ class FramepackIntegration:
             move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
         
         print("Cleanup complete.")
-
-
-### 補足：transformer_manager.py に追加すべき dispose メソッド
-
-# 以下のメソッドを TransformerManager クラスの末尾に追加してください。
-
-def dispose(self):
-    """
-    Transformerモデルの後片付けを行う。
-    DynamicSwapInstallerのアンインストール、CPUへの移動、インスタンス削除を含む。
-    """
-    if not self.transformer:
-        return
-
-    print("Disposing Transformer model...")
-    
-    # 低VRAMモードでDynamicSwapInstallerを使用した場合、パッチを解除する
-    if not self.current_state['high_vram']:
-        print("Uninstalling DynamicSwapInstaller patches from Transformer...")
-        DynamicSwapInstaller.uninstall_model(self.transformer)
-    
-    try:
-        # モデルをCPUに移動
-        self.transformer.to(cpu)
-    except Exception as e:
-        print(f"Could not move transformer to cpu: {e}")
-
-    # 参照を削除
-    del self.transformer
-    self.transformer = None
-    
-    # 状態をリセット
-    self.current_state['is_loaded'] = False
-
-    print("Transformer disposed.")
