@@ -141,36 +141,29 @@ class TransformerManager:
             lora_paths = self.next_state.get('lora_paths', []) or []
             force_dict_split = self.next_state.get('force_dict_split', False)
 
-            if (not lora_paths) and not self.next_state['fp8_enabled'] and not force_dict_split:
-                self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
-                    self.model_path,
-                    torch_dtype=torch.bfloat16,
-                    local_files_only=True
-                )
-                self.transformer.to(dtype=torch.bfloat16)
-            else:
-                # (この部分はLoRAやFP8使用時のロジックのため、今回は変更なし)
-                if self.next_state['fp8_enabled']:
-                    pass
+            print("Loading transformer with automatic device mapping (offloading)...")
+            # device_map="auto" を使い、VRAMとCPUにモデルを分散配置する
+            self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
+                self.model_path,
+                torch_dtype=torch.bfloat16,
+                local_files_only=True,
+                device_map="auto",  # ★★★ このオプションを追加
+                offload_folder="offload", # オプション：オフロード用の一時フォルダ
+                offload_state_dict=True # オプション：メモリをさらに節約
+            )
+            # .to(self.device) は device_map を使うため不要になる
 
-                model_files = self._find_model_files()
-                if not model_files:
-                    raise FileNotFoundError(f"No .safetensors model files found in {self.model_path}")
-                
-                self._load_virtual_transformer()
-                # (状態辞書の読み込みロジック...)
-
-            # ★★★ 修正箇所 ★★★
-            # モデルを一度CPUに送る処理とVRAMモードの分岐を削除し、
-            # 常にGPU(self.device)に配置するように変更します。
-            # これにより、低VRAMモード時のデバイス不一致エラーを回避します。
-            
             self.transformer.eval()
             self.transformer.high_quality_fp32_output_for_inference = True
             self.transformer.requires_grad_(False)
             
-            print(f"Moving transformer directly to device: {self.device}")
-            self.transformer.to(self.device)
+            # ★★★ 修正箇所 ★★★
+            # VRAM不足対策として、Gradient Checkpointingをここで有効化する
+            if hasattr(self.transformer, 'enable_gradient_checkpointing'):
+                print("Enabling gradient checkpointing to conserve VRAM during inference...")
+                self.transformer.enable_gradient_checkpointing()
+            
+            self.next_state['is_loaded'] = True
             
             self.next_state['is_loaded'] = True
             self.current_state = self.next_state.copy()
