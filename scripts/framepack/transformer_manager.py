@@ -124,52 +124,55 @@ class TransformerManager:
         model_files.sort()
         return model_files
 
+# transformer_manager.py の _reload_transformer メソッドを修正
+
     def _reload_transformer(self):
-        """next_stateの設定でtransformerをリロード"""
         try:
             if self.transformer is not None:
-                self.current_state['is_loaded'] = False
-                del self.transformer
-                import gc
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                # (既存の解放処理)
 
+            ### ▼ デバッグログ追加 ▼ ###
+            print(f"[DEBUG] VRAM Free before Transformer reload: {get_cuda_free_memory_gb(self.device):.2f} GB")
             print("Reloading transformer...")
             print(f"Applying new settings from model path: {self.model_path}")
-            
-            lora_paths = self.next_state.get('lora_paths', []) or []
-            force_dict_split = self.next_state.get('force_dict_split', False)
 
+            # (前回の提案通り device_map="auto" を使ったロード処理)
             print("Loading transformer with automatic device mapping (offloading)...")
-            # device_map="auto" を使い、VRAMとCPUにモデルを分散配置する
             self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
                 self.model_path,
                 torch_dtype=torch.bfloat16,
                 local_files_only=True,
-                device_map="auto",  # ★★★ このオプションを追加
-                offload_folder="offload", # オプション：オフロード用の一時フォルダ
-                offload_state_dict=True # オプション：メモリをさらに節約
+                device_map="auto",
+                offload_folder="offload",
+                offload_state_dict=True
             )
-            # .to(self.device) は device_map を使うため不要になる
-
-            self.transformer.eval()
-            self.transformer.high_quality_fp32_output_for_inference = True
-            self.transformer.requires_grad_(False)
             
-            # ★★★ 修正箇所 ★★★
-            # VRAM不足対策として、Gradient Checkpointingをここで有効化する
+            ### ▼ デバッグログ追加 ▼ ###
+            print("Transformer loaded via device_map.")
+            try:
+                # 実際にパラメータがどのデバイスにあるか確認
+                print(f"  - Transformer execution device: {self.transformer.device}")
+                print(f"  - Transformer sample parameter device: {next(self.transformer.parameters()).device}")
+            except Exception as e:
+                print(f"  - Could not check parameter device: {e}")
+            print(f"[DEBUG] VRAM Free after Transformer reload: {get_cuda_free_memory_gb(self.device):.2f} GB")
+
+            self.transformer.eval() # 
+            self.transformer.high_quality_fp32_output_for_inference = True # 
+            self.transformer.requires_grad_(False) # 
+            
             if hasattr(self.transformer, 'enable_gradient_checkpointing'):
                 print("Enabling gradient checkpointing to conserve VRAM during inference...")
                 self.transformer.enable_gradient_checkpointing()
-            
-            self.next_state['is_loaded'] = True
             
             self.next_state['is_loaded'] = True
             self.current_state = self.next_state.copy()
 
             print("Transformer reload complete.")
             return True
+            
+        except Exception as e:
+            # (エラーハンドリング)
             
         except Exception as e:
             print(f"Transformer reload failed: {e}")
