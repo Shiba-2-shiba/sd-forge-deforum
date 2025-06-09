@@ -243,7 +243,6 @@ class FramepackIntegration:
             # NumPy配列をPyTorchテンソルに変換
             init_tensor = numpy2pytorch([init_image_np])
             
-            # ★★★ 修正箇所 ★★★
             # ビデオVAE (AutoencoderKLHunyuanVideo) は5Dテンソル (B, C, T, H, W) を
             # 期待するため、4Dテンソル (B, C, H, W) に時間(T)の次元を追加します。
             init_tensor = init_tensor.unsqueeze(2)
@@ -280,6 +279,18 @@ class FramepackIntegration:
 
         managers["transformer"].ensure_transformer_state()
         f1_transformer = managers["transformer"].get_transformer()
+
+        # ★★★ 修正箇所 ★★★
+        # VRAM使用量を削減するため、gradient checkpointingを有効化します。
+        # これにより、計算速度は若干低下しますが、メモリのピーク使用量を抑え、
+        # モデルのロードと推論実行の両方におけるVRAM不足エラーを防ぎます。
+        if f1_transformer is not None:
+            if hasattr(f1_transformer, 'enable_gradient_checkpointing'):
+                print("Enabling gradient checkpointing to conserve VRAM...")
+                f1_transformer.enable_gradient_checkpointing()
+            else:
+                print("Warning: Transformer model does not have 'enable_gradient_checkpointing' method.")
+        
         history_latents = start_latent.clone()
         total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
 
