@@ -61,21 +61,22 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     image_processor = image_processor_manager.get_processor()
     tokenizer, tokenizer_2 = tokenizer_manager.get_tokenizers()
     
+    high_vram = transformer_manager.current_state['high_vram']
+
+    # --- 2. パラメータの準備 ---
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     # ★★★                  エラー修正箇所                  ★★★
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    high_vram = transformer_manager.current_state['high_vram']
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-
-    # --- 2. パラメータの準備 ---
-    prompt = args.prompts
+    prompt = args.positive_prompts  # [FIX 1] .prompt から .positive_prompts に修正
     seed = args.seed
-    steps = anim_args.steps
+    steps = args.steps               # [FIX 2] anim_args から args に修正
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    
     width, height = args.W, args.H
-    cfg = anim_args.strength_schedule # 例: strengthをCFGとして利用
-    gs = framepack_f1_args.get('distilled_guidance_scale', 6.0) # デフォルト値
-    rs = framepack_f1_args.get('guidance_rescale', 0.0) # デフォルト値
-    latent_window_size = framepack_f1_args.get('latent_window_size', 16) # デフォルト値
+    cfg = anim_args.strength_schedule 
+    gs = framepack_f1_args.get('distilled_guidance_scale', 6.0) 
+    rs = framepack_f1_args.get('guidance_rescale', 0.0) 
+    latent_window_size = framepack_f1_args.get('latent_window_size', 16)
     use_vae_cache = framepack_f1_args.get('use_vae_cache', False)
 
     job_id = generate_timestamp()
@@ -89,8 +90,9 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     prompt_embeds, prompt_poolers = encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
     
-    # ネガティブプロンプトの処理 (空文字でエンコード)
-    n_prompt_embeds, n_prompt_poolers = encode_prompt_conds("", text_encoder, text_encoder_2, tokenizer, tokenizer_2)
+    # ネガティブプロンプトの処理
+    n_prompt = args.negative_prompts if hasattr(args, 'negative_prompts') else ""
+    n_prompt_embeds, n_prompt_poolers = encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
 
     prompt_embeds, prompt_embeds_mask = crop_or_pad_yield_mask(prompt_embeds, length=256)
     n_prompt_embeds, n_prompt_embeds_mask = crop_or_pad_yield_mask(n_prompt_embeds, length=256)
@@ -126,7 +128,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     if not high_vram: load_model_as_complete(image_encoder, target_device=device)
     
     image_embeddings_output = hf_clip_vision_encode(input_image_np, image_processor, image_encoder)
-    image_embeddings = image_embeddings_output.last_hidden_state # ★ 1152次元の特徴量シーケンス
+    image_embeddings = image_embeddings_output.last_hidden_state 
     
     if not high_vram: unload_complete_models(image_encoder)
 
@@ -163,8 +165,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         device=device,
         dtype=torch.bfloat16,
     )
-    
-    # ToDo: 本来はここでループを回し、生成されたlatentを結合していく
     
     generated_latents = sample_hunyuan(**sampler_kwargs)
 
