@@ -1,4 +1,4 @@
-# tensor_tool.py (リファクタリング後)
+# tensor_tool.py (修正反映版)
 
 import os
 import torch
@@ -54,7 +54,12 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     tokenizer_manager = managers["tokenizers"]
     
     # モデルのインスタンスを取得
-    transformer = transformer_manager.get_model()
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★                  エラー修正箇所                  ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    transformer = transformer_manager.get_transformer() # .get_model() から修正
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
     text_encoder, text_encoder_2 = text_encoder_manager.get_text_encoders()
     vae = vae_manager.get_model()
     image_encoder = image_encoder_manager.get_model()
@@ -140,20 +145,20 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         sampler="unipc",
         width=bucket_w,
         height=bucket_h,
-        frames=latent_window_size,  # ★ `frames` 引数を渡す
+        frames=latent_window_size,
         real_guidance_scale=cfg,
         distilled_guidance_scale=gs,
         guidance_rescale=rs,
         num_inference_steps=steps,
         generator=rnd,
         prompt_embeds=prompt_embeds.to(transformer.dtype),
-        prompt_embeds_mask=prompt_embeds_mask, # ★ マスクを渡す
+        prompt_embeds_mask=prompt_embeds_mask,
         prompt_poolers=prompt_poolers.to(transformer.dtype),
         negative_prompt_embeds=n_prompt_embeds.to(transformer.dtype),
-        negative_prompt_embeds_mask=n_prompt_embeds_mask, # ★ マスクを渡す
+        negative_prompt_embeds_mask=n_prompt_embeds_mask,
         negative_prompt_poolers=n_prompt_poolers.to(transformer.dtype),
-        image_embeddings=image_embeddings.to(transformer.dtype), # ★ `image_embeddings` として渡す
-        latent_indices=None, # ★ 必要なコンテキスト引数を渡す (デバッグ情報に基づき修正)
+        image_embeddings=image_embeddings.to(transformer.dtype),
+        latent_indices=None,
         clean_latents=None,
         clean_latent_indices=None,
         device=device,
@@ -161,8 +166,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     )
     
     # ToDo: 本来はここでループを回し、生成されたlatentを結合していく
-    #       (tensor_tool.py の `soft_append_bcthw` の使い方を参考にする)
-    #       今回はまず1回の生成を成功させる
     
     generated_latents = sample_hunyuan(**sampler_kwargs)
 
