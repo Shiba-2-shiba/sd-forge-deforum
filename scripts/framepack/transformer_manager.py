@@ -3,10 +3,11 @@ import glob
 import torch
 import traceback
 from accelerate import init_empty_weights
+import gc
 
 # --- ローカルのdiffusersからインポートすることを明示 ---
 from scripts.diffusers import HunyuanVideoFramepackTransformer3DModel
-from .memory import DynamicSwapInstaller
+from .memory import get_cuda_free_memory_gb # get_cuda_free_memory_gb を直接インポート
 
 class TransformerManager:
     """
@@ -124,19 +125,25 @@ class TransformerManager:
         model_files.sort()
         return model_files
 
-# transformer_manager.py の _reload_transformer メソッドを修正
-
     def _reload_transformer(self):
         try:
             if self.transformer is not None:
-                # (既存の解放処理)
-
-            ### ▼ デバッグログ追加 ▼ ###
+                ### ▼▼▼ IndentationError 修正箇所 ▼▼▼ ###
+                # 既存のモデルを解放する処理が抜けていたため、インデントエラーが発生していました。
+                # メモリを解放するためのコードをここに追加します。
+                print("Disposing existing transformer model...")
+                self.current_state['is_loaded'] = False
+                del self.transformer
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            # ▼ デバッグログ追加 ▼
             print(f"[DEBUG] VRAM Free before Transformer reload: {get_cuda_free_memory_gb(self.device):.2f} GB")
             print("Reloading transformer...")
             print(f"Applying new settings from model path: {self.model_path}")
 
-            # (前回の提案通り device_map="auto" を使ったロード処理)
+            # ▼ device_map="auto" を使ったロード処理 ▼
             print("Loading transformer with automatic device mapping (offloading)...")
             self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
                 self.model_path,
@@ -147,7 +154,7 @@ class TransformerManager:
                 offload_state_dict=True
             )
             
-            ### ▼ デバッグログ追加 ▼ ###
+            # ▼ デバッグログ追加 ▼
             print("Transformer loaded via device_map.")
             try:
                 # 実際にパラメータがどのデバイスにあるか確認
@@ -157,10 +164,11 @@ class TransformerManager:
                 print(f"  - Could not check parameter device: {e}")
             print(f"[DEBUG] VRAM Free after Transformer reload: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
-            self.transformer.eval() # 
-            self.transformer.high_quality_fp32_output_for_inference = True # 
-            self.transformer.requires_grad_(False) # 
+            self.transformer.eval() 
+            self.transformer.high_quality_fp32_output_for_inference = True 
+            self.transformer.requires_grad_(False) 
             
+            # ▼ Gradient Checkpointing 有効化 ▼
             if hasattr(self.transformer, 'enable_gradient_checkpointing'):
                 print("Enabling gradient checkpointing to conserve VRAM during inference...")
                 self.transformer.enable_gradient_checkpointing()
