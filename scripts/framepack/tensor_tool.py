@@ -1,4 +1,4 @@
-# tensor_tool.py (修正反映版)
+# tensor_tool.py (最終修正版)
 
 import os
 import torch
@@ -19,6 +19,7 @@ from .utils import (
 from .hunyuan import encode_prompt_conds, vae_encode
 from .clip_vision import hf_clip_vision_encode
 from .bucket_tools import find_nearest_bucket
+# ★★★ 修正箇所1: vae_cache.py から逐次デコード関数をインポート ★★★
 from .vae_cache import vae_decode_cache
 
 # メモリ管理ユーティリティ
@@ -58,7 +59,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     image_processor_manager = managers["image_processor"]
     tokenizer_manager = managers["tokenizers"]
     
-    # ★★★ 修正箇所1: モデルを取得する前に、各マネージャーにロードを指示する ★★★
     transformer_manager.ensure_transformer_state()
     text_encoder_manager.ensure_text_encoder_state()
     
@@ -69,7 +69,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     image_processor = image_processor_manager.get_processor()
     tokenizer, tokenizer_2 = tokenizer_manager.get_tokenizers()
     
-    # 状態が確定した後にVRAMモードを取得
     high_vram = transformer_manager.current_state['high_vram']
 
     # --- 2. パラメータの準備 ---
@@ -82,10 +81,8 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
-    use_vae_cache = getattr(framepack_f1_args, 'use_vae_cache', False)
-
+    
     job_id = generate_timestamp()
-    # ★★★ 修正箇所2: 正しい出力ディレクトリ変数を参照する ★★★
     output_path = os.path.join(args.outdir, f"{job_id}.mp4")
 
     # --- 3. プロンプトエンコード ---
@@ -176,11 +173,9 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     print("[tensor_tool] Decoding latents and saving video...")
     if not high_vram: load_model_as_complete(vae, target_device=device)
 
-    if use_vae_cache:
-        print("[tensor_tool] Using VAE cache for decoding.")
-        pixels = vae_decode_cache(generated_latents, vae)
-    else:
-        pixels = vae.decode(generated_latents.to(vae.device, vae.dtype) / vae.config.scaling_factor).sample
+    # ★★★ 修正箇所2: VRAM枯渇を防ぐため、常にキャッシュ（逐次）デコード方式を使用する ★★★
+    print("[tensor_tool] Using VAE cache for decoding to prevent OOM.")
+    pixels = vae_decode_cache(generated_latents, vae)
 
     if not high_vram: unload_complete_models(vae)
 
