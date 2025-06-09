@@ -21,7 +21,6 @@ from .text_encoder_manager import TextEncoderManager
 from .discovery import FramepackDiscovery
 
 
-# VAEやImageEncoderなどのマネージャークラスは変更不要なため、そのまま残します
 # --- マネージャークラス定義 (変更なし) ---
 class VaeManager:
     """Hunyuan VAEのロードとライフサイクルを管理するクラス"""
@@ -36,7 +35,6 @@ class VaeManager:
 
     def _load_model(self):
         print(f"Loading Hunyuan VAE from: {self.model_path}")
-        # diffusers.AutoencoderKLHunyuanVideo のインポートを動的に行う
         from scripts.diffusers import AutoencoderKLHunyuanVideo
         self.model = AutoencoderKLHunyuanVideo.from_pretrained(
             self.model_path, subfolder='vae', torch_dtype=torch.bfloat16, local_files_only=True
@@ -251,7 +249,6 @@ class FramepackIntegration:
 
         try:
             # tensor_tool.pyに定義されたメインの実行関数を呼び出す
-            # この関数内で、これまでこのメソッドにあった全ての処理（プロンプト準備、VAEエンコード、生成ループなど）が行われる
             final_video_path = tensor_tool.execute_generation(
                 managers=self.managers,
                 device=self.device,
@@ -266,6 +263,8 @@ class FramepackIntegration:
                 print(f"[FramePack Integration] Video generation completed successfully. Output: {final_video_path}")
             else:
                 print("[FramePack Integration] Video generation finished, but no output path was returned.")
+
+            return final_video_path # 戻り値を追加
 
         except Exception as e:
             print(f"[FramePack Integration] An error occurred during video generation delegated to tensor_tool.")
