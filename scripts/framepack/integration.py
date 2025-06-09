@@ -197,7 +197,7 @@ class FramepackIntegration:
         torch.cuda.empty_cache()
         print("Environment setup complete.")
 
-    def # integration.py の generate_video メソッドを修正
+    # integration.py の generate_video メソッドを修正
 
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
         managers = self.managers
@@ -297,9 +297,6 @@ class FramepackIntegration:
         print(f"  - image_embeds: Shape={image_embeds.shape}, Dtype={image_embeds.dtype}, Device={image_embeds.device}")
         print(f"  - VRAM Free before sampling loop: {get_cuda_free_memory_gb(self.device):.2f} GB")
         print("="*40 + "\n")
-
-        for i_section in range(total_sections):
-            # (ループ処理)
 
         for i_section in range(total_sections):
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
