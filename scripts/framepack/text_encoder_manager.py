@@ -13,24 +13,20 @@ class TextEncoderManager:
     設定の変更はすぐには適用されず、次回のリロード時に適用されます。
     """
 
-    # --- 修正箇所 1 ---
     def __init__(self, device, high_vram_mode: bool, model_path: str):
         self.text_encoder = None
         self.text_encoder_2 = None
         self.device = device
 
-        # 受け取ったモデルパスを検証し、保存する
         if not model_path or not os.path.isdir(model_path):
             raise FileNotFoundError(f"TextEncoderManager received an invalid model_path: {model_path}")
         self.model_path = model_path
 
-        # 現在適用されている設定
         self.current_state = {
             'is_loaded': False,
             'high_vram': high_vram_mode
         }
 
-        # 次回のロード時に適用する設定
         self.next_state = self.current_state.copy()
         
     def set_next_settings(self, high_vram_mode: bool):
@@ -54,7 +50,7 @@ class TextEncoderManager:
         """現在のtext_encoderとtext_encoder_2インスタンスを取得"""
         return self.text_encoder, self.text_encoder_2
 
-    def dispose_text_encoders(self):
+    def dispose(self):
         """text_encoderとtext_encoder_2のインスタンスを破棄し、メモリを完全に解放"""
         try:
             if not self._is_loaded():
@@ -63,11 +59,15 @@ class TextEncoderManager:
             print("text_encoderとtext_encoder_2のメモリを解放します...")
             
             if self.text_encoder is not None:
+                if not self.current_state['high_vram']:
+                    DynamicSwapInstaller.uninstall_model(self.text_encoder)
                 self.text_encoder.to('cpu')
                 del self.text_encoder
                 self.text_encoder = None
 
             if self.text_encoder_2 is not None:
+                if not self.current_state['high_vram']:
+                    DynamicSwapInstaller.uninstall_model(self.text_encoder_2)
                 self.text_encoder_2.to('cpu')
                 del self.text_encoder_2
                 self.text_encoder_2 = None
@@ -93,17 +93,15 @@ class TextEncoderManager:
         print("ロード済みのtext_encoderとtext_encoder_2を再度利用します")
         return True
     
-    # --- 修正箇所 2 ---
     def _reload_text_encoders(self):
         """next_stateの設定でtext_encoderとtext_encoder_2をリロード"""
         try:
-            self.dispose_text_encoders() # 既存のモデルを確実に解放
+            self.dispose() # 既存のモデルを確実に解放
 
             from transformers import LlamaModel, CLIPTextModel
             
             print(f"Loading Text Encoders from: {self.model_path}")
 
-            # ハードコードされたリポジトリ名を self.model_path に置き換え、local_files_only=True を追加
             self.text_encoder = LlamaModel.from_pretrained(
                 self.model_path, 
                 subfolder='text_encoder', 
@@ -124,11 +122,12 @@ class TextEncoderManager:
             self.text_encoder.requires_grad_(False)
             self.text_encoder_2.requires_grad_(False)
             
-            # VRAMモードに応じた設定
             if not self.next_state['high_vram']:
+                print("Low VRAM mode: Applying DynamicSwapInstaller to TextEncoders...")
                 DynamicSwapInstaller.install_model(self.text_encoder, device=self.device)
                 DynamicSwapInstaller.install_model(self.text_encoder_2, device=self.device)
             else:
+                print("High VRAM mode: Moving TextEncoders to GPU...")
                 self.text_encoder.to(self.device)
                 self.text_encoder_2.to(self.device)
             
