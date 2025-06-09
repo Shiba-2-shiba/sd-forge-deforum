@@ -91,7 +91,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
     job_id = generate_timestamp()
-    output_path = os.path.join(root.outputs_path, f"{job_id}.mp4")
+    output_path = os.path.join(args.outdir, f"{job_id}.mp4")
 
     # --- 3. プロンプトエンコード ---
     print("[tensor_tool] Encoding prompts...")
