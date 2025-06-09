@@ -54,19 +54,18 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     tokenizer_manager = managers["tokenizers"]
     
     # モデルのインスタンスを取得
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★                  エラー修正箇所                  ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    transformer = transformer_manager.get_transformer() # .get_model() から修正
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-
+    transformer = transformer_manager.get_transformer()
     text_encoder, text_encoder_2 = text_encoder_manager.get_text_encoders()
     vae = vae_manager.get_model()
     image_encoder = image_encoder_manager.get_model()
     image_processor = image_processor_manager.get_processor()
     tokenizer, tokenizer_2 = tokenizer_manager.get_tokenizers()
     
-    high_vram = transformer_manager.high_vram_mode
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★                  エラー修正箇所                  ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    high_vram = transformer_manager.current_state['high_vram']
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
     # --- 2. パラメータの準備 ---
     prompt = args.prompt
