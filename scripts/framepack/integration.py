@@ -356,7 +356,7 @@ class FramepackIntegration:
                 prompt_poolers=clip_l_pooler,
                 generator=generator,
                 width=args.W, height=args.H,
-                image_embeds=image_embeds,
+                image_embeddings=image_embeds,
                 indices_latents=None,
                 device=self.device,
             )
