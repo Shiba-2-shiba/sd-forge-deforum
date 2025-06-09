@@ -8,6 +8,9 @@ import json
 from modules import shared
 from modules.devices import cpu
 
+# 外部モジュールとして tensor_tool をインポート
+from . import tensor_tool
+
 from .memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
@@ -15,19 +18,10 @@ from .memory import (
 )
 from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
-from .k_diffusion_hunyuan import sample_hunyuan
-from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
-from .utils import resize_and_center_crop, save_bcthw_as_mp4, numpy2pytorch, crop_or_pad_yield_mask, soft_append_bcthw
-from .bucket_tools import find_nearest_bucket
 from .discovery import FramepackDiscovery
-from scripts.diffusers import AutoencoderKLHunyuanVideo
-from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, SiglipImageProcessor
-from .clip_vision import hf_clip_vision_encode
-# ★★★ 修正/追加箇所 ★★★
-# VAEのOOMエラー対策として、キャッシュを利用したデコーダーをインポート
-from .vae_cache import vae_decode_cache
-# ★★★★★★★★★★★★★★★★
 
+
+# VAEやImageEncoderなどのマネージャークラスは変更不要なため、そのまま残します
 # --- マネージャークラス定義 (変更なし) ---
 class VaeManager:
     """Hunyuan VAEのロードとライフサイクルを管理するクラス"""
@@ -42,6 +36,8 @@ class VaeManager:
 
     def _load_model(self):
         print(f"Loading Hunyuan VAE from: {self.model_path}")
+        # diffusers.AutoencoderKLHunyuanVideo のインポートを動的に行う
+        from scripts.diffusers import AutoencoderKLHunyuanVideo
         self.model = AutoencoderKLHunyuanVideo.from_pretrained(
             self.model_path, subfolder='vae', torch_dtype=torch.bfloat16, local_files_only=True
         ).cpu()
@@ -75,6 +71,7 @@ class ImageEncoderManager:
     def get_model(self):
         if not self.is_loaded:
             print(f"Loading Image Encoder from: {self.model_path}")
+            from transformers import CLIPVisionModelWithProjection
             self.model = CLIPVisionModelWithProjection.from_pretrained(
                 self.model_path, subfolder="image_encoder", torch_dtype=torch.bfloat16,
                 local_files_only=True, ignore_mismatched_sizes=True
@@ -103,6 +100,7 @@ class ImageProcessorManager:
     def get_processor(self):
         if not self.is_loaded:
             print(f"Loading Image Processor from: {self.model_path}")
+            from transformers import SiglipImageProcessor
             self.processor = SiglipImageProcessor.from_pretrained(
                 self.model_path, subfolder="feature_extractor", local_files_only=True
             )
@@ -129,6 +127,7 @@ class TokenizerManager:
     def get_tokenizers(self):
         if not self.is_loaded:
             print(f"Loading Tokenizers from: {self.model_path}")
+            from transformers import LlamaTokenizerFast, CLIPTokenizer
             self.tokenizer = LlamaTokenizerFast.from_pretrained(self.model_path, subfolder="tokenizer", local_files_only=True)
             self.tokenizer_2 = CLIPTokenizer.from_pretrained(self.model_path, subfolder="tokenizer_2", local_files_only=True)
             self.is_loaded = True
@@ -240,160 +239,43 @@ class FramepackIntegration:
         torch.cuda.empty_cache()
         print("Environment setup complete.")
 
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★           generate_video メソッドの修正箇所           ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
-        managers = self.managers
-        
-        f1_vae = managers["vae"].get_model()
-        f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get_tokenizers()
-        f1_image_processor = managers["image_processor"].get_processor()
-        f1_image_encoder = managers["image_encoder"].get_model()
-
-        prompt_text = ""
-        prompts_schedule = args.prompts
-        if not isinstance(prompts_schedule, dict) or not prompts_schedule:
-            raise ValueError("Prompts are not in the expected dictionary format or are empty.")
-        try:
-            first_frame_key = sorted(prompts_schedule.keys(), key=int)[0]
-            prompt_text = prompts_schedule[first_frame_key]
-        except (ValueError, IndexError) as e:
-            raise ValueError(f"Could not extract the first prompt from the schedule: {e}")
-        if not prompt_text:
-            raise ValueError("The first prompt in the schedule is empty.")
-        
-        print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
-
-        pil_init_image = Image.open(args.init_image).convert("RGB")
-        
-        print(f"Original resolution: {pil_init_image.width}x{pil_init_image.height}")
-        optimal_height, optimal_width = find_nearest_bucket(pil_init_image.height, pil_init_image.width, resolution=640)
-        print(f"Optimized to bucket resolution: {optimal_width}x{optimal_height}")
-
-        print(f"[DEBUG] Initial VRAM Free: {get_cuda_free_memory_gb(self.device):.2f} GB")
+        """
+        動画生成処理を外部モジュール `tensor_tool.py` に委譲する。
+        このメソッドは、Deforumの引数と初期化済みのマネージャーを `tensor_tool` に渡す役割を担う。
+        """
+        print("[FramePack Integration] Delegating video generation to tensor_tool module...")
 
         try:
-            print("[DEBUG] Moving Image Encoder to GPU...")
-            move_model_to_device_with_memory_preservation(f1_image_encoder, self.device)
-            image_encoder_output = hf_clip_vision_encode(
-                image=np.array(pil_init_image),
-                feature_extractor=f1_image_processor,
-                image_encoder=f1_image_encoder
-            )
-            image_embeddings_for_transformer = image_encoder_output.last_hidden_state
-            print(f"[DEBUG] image_embeddings_for_transformer created. Shape: {image_embeddings_for_transformer.shape}")
-        finally:
-            offload_model_from_device_for_memory_preservation(f1_image_encoder, self.device)
-            print("[DEBUG] Image Encoder offloaded from GPU.")
-
-        try:
-            print("[DEBUG] Moving VAE to GPU for encoding...")
-            move_model_to_device_with_memory_preservation(f1_vae, self.device)
-            init_image_np = resize_and_center_crop(np.array(pil_init_image), optimal_width, optimal_height)
-            init_tensor = numpy2pytorch([init_image_np]).unsqueeze(2)
-            start_latent = vae_encode(init_tensor, f1_vae)
-            print(f"[DEBUG] start_latent created. Shape: {start_latent.shape}")
-        finally:
-            offload_model_from_device_for_memory_preservation(f1_vae, self.device)
-            print("[DEBUG] VAE offloaded from GPU.")
-
-        print("[FramePack F1] Encoding prompts and then forcefully clearing text encoders from VRAM...")
-        managers["text_encoder"].ensure_text_encoder_state()
-        f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
-        
-        llama_vec, clip_l_pooler = encode_prompt_conds(prompt_text, f1_text_encoder, f1_text_encoder_2, f1_tokenizer, f1_tokenizer_2)
-        llama_vec, prompt_mask = crop_or_pad_yield_mask(llama_vec, length=512)
-        
-        llama_vec, prompt_mask, clip_l_pooler = llama_vec.to(self.device), prompt_mask.to(self.device), clip_l_pooler.to(self.device)
-        print(f"[DEBUG] Prompt conditioning created. llama_vec shape: {llama_vec.shape}, mask shape: {prompt_mask.shape}")
-        
-        print("[FramePack F1] Disposing text encoders...")
-        managers["text_encoder"].dispose_text_encoders()
-        gc.collect(); torch.cuda.empty_cache()
-
-        if not managers["transformer"].ensure_transformer_state():
-            raise RuntimeError("Failed to load or setup the Transformer model. Check logs for OOM errors.")
-
-        f1_transformer = managers["transformer"].get_transformer()
-
-        history_latents_cpu = start_latent.clone().cpu()
-        
-        latent_window_size = getattr(framepack_f1_args, 'f1_latent_window_size', 9)
-        frames_per_section = latent_window_size * 4 - 3
-        total_sections = int(max(round((anim_args.max_frames - 1) / frames_per_section), 1))
-        
-        seed = args.seed if args.seed != -1 else torch.seed()
-        generator = torch.Generator(device="cpu").manual_seed(int(seed))
-        print(f"[FramePack F1] Using seed: {seed}")
-
-        # --- デコード済みピクセル履歴の初期化 ---
-        history_pixels_decoded = None
-        try:
-            print("[DEBUG] Decoding initial frame...")
-            move_model_to_device_with_memory_preservation(f1_vae, self.device)
-            history_pixels_decoded = vae_decode(start_latent, f1_vae).cpu()
-        finally:
-            offload_model_from_device_for_memory_preservation(f1_vae, self.device)
-        
-        # --- メイン生成ループ ---
-        for i_section in range(total_sections):
-            if shared.state.interrupted: break
-            shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
-
-            current_history_gpu = history_latents_cpu.to(self.device)
-            frames_to_generate = latent_window_size * 4 - 3
-            
-            indices = torch.arange(0, sum([1, 16, 2, 1, latent_window_size])).unsqueeze(0)
-            clean_latent_indices_start, clean_latent_4x_indices, clean_latent_2x_indices, clean_latent_1x_indices, latent_indices = indices.split([1, 16, 2, 1, latent_window_size], dim=1)
-            clean_latent_indices = torch.cat([clean_latent_indices_start, clean_latent_1x_indices], dim=1)
-
-            if current_history_gpu.shape[2] > (16 + 2 + 1):
-                clean_latents_4x, clean_latents_2x, clean_latents_1x = current_history_gpu[:, :, -sum([16, 2, 1]):].split([16, 2, 1], dim=2)
-            else:
-                z_like = torch.zeros_like(current_history_gpu)
-                clean_latents_4x = z_like.repeat(1, 1, 16, 1, 1)
-                clean_latents_2x = z_like.repeat(1, 1, 2, 1, 1)
-                clean_latents_1x = current_history_gpu[:,:,-1:]
-
-            clean_latents = torch.cat([start_latent.to(self.device), clean_latents_1x], dim=2)
-            
-            generated_latents = sample_hunyuan(
-                transformer=f1_transformer,
-                strength=framepack_f1_args.f1_image_strength,
-                num_inference_steps=framepack_f1_args.f1_generation_latent_size,
-                frames=frames_to_generate,
-                prompt_embeds=llama_vec,
-                prompt_embeds_mask=prompt_mask,
-                prompt_poolers=clip_l_pooler,
-                generator=generator,
-                width=optimal_width, height=optimal_height,
-                image_embeddings=image_embeddings_for_transformer,
+            # tensor_tool.pyに定義されたメインの実行関数を呼び出す
+            # この関数内で、これまでこのメソッドにあった全ての処理（プロンプト準備、VAEエンコード、生成ループなど）が行われる
+            final_video_path = tensor_tool.execute_generation(
+                managers=self.managers,
                 device=self.device,
-                latent_indices=latent_indices,
-                clean_latents=clean_latents,
-                clean_latent_indices=clean_latent_indices,
-                clean_latents_2x=clean_latents_2x,
-                clean_latent_2x_indices=clean_latent_2x_indices,
-                clean_latents_4x=clean_latents_4x,
-                clean_latent_4x_indices=clean_latent_4x_indices,
+                args=args,
+                anim_args=anim_args,
+                video_args=video_args,
+                framepack_f1_args=framepack_f1_args,
+                root=root
             )
-            
-            history_latents_cpu = torch.cat([history_latents_cpu, generated_latents.cpu()], dim=2)
-            
-            # ★★★ 修正箇所: VAE OOMエラー対策としてキャッシュ版デコーダーを使用 ★★★
-            try:
-                print(f"[DEBUG] Decoding section {i_section + 1} with cache...")
-                move_model_to_device_with_memory_preservation(f1_vae, self.device)
-                
-                decoded_section = vae_decode_cache(generated_latents, f1_vae).cpu()
 
-                overlap_frames = 4
-                history_pixels_decoded = soft_append_bcthw(history_pixels_decoded, decoded_section, overlap=overlap_frames)
-            finally:
-                offload_model_from_device_for_memory_preservation(f1_vae, self.device)
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-        
-        output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
-        save_bcthw_as_mp4(history_pixels_decoded, output_path, fps=video_args.fps)
-        print(f"[FramePack F1] Video saved to {output_path}")
+            if final_video_path and os.path.exists(final_video_path):
+                print(f"[FramePack Integration] Video generation completed successfully. Output: {final_video_path}")
+            else:
+                print("[FramePack Integration] Video generation finished, but no output path was returned.")
+
+        except Exception as e:
+            print(f"[FramePack Integration] An error occurred during video generation delegated to tensor_tool.")
+            # エラーを再スローして、上位の呼び出し元（run_deforum.pyなど）で処理できるようにする
+            raise e
+
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★                   修正箇所はここまで                   ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
 
     def cleanup_environment(self):
         if self.managers is None:
