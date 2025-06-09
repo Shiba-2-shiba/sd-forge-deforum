@@ -4,6 +4,7 @@ import torch
 import traceback
 from accelerate import init_empty_weights
 import gc
+from safetensors.torch import load_file  # ★ 変更: safetensorsローダーをインポート
 
 # DynamicSwapInstallerをインポート
 from .hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
@@ -119,16 +120,18 @@ class TransformerManager:
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(f"The specified model directory does not exist: {self.model_path}")
         
+        # ★ 変更なし: 元の実装でsafetensorsを正しく探せているので流用
         model_files = glob.glob(os.path.join(self.model_path, '**', '*.safetensors'), recursive=True)
         model_files = [f for f in model_files if os.path.basename(f).startswith('diffusion_pytorch_model')]
         
         model_files.sort()
         return model_files
 
+    # ★★★★★ ここからが主要な修正箇所 ★★★★★
     def _reload_transformer(self):
         """
         モデルを再ロードする。
-        device_map="auto"の代わりにDynamicSwapInstallerを使用する方式に変更。
+        safetensorsローダーを使用し、シャーディングされたモデルに対応する方式に変更。
         """
         try:
             # disposeメソッドが呼ばれているはずだが、念のためここでも解放処理
@@ -139,21 +142,31 @@ class TransformerManager:
             print("Reloading transformer...")
             print(f"Applying new settings from model path: {self.model_path}")
 
-            # 1. device_map を使わずに、まずCPUにモデルをロードする
-            print("Loading transformer to CPU first...")
-            # 仮想モデルの抜け殻を再利用
+            # 1. 仮想モデルの抜け殻を準備
             if self.transformer is None:
                 self._load_virtual_transformer()
 
-            self.transformer.load_state_dict(
-                torch.load(self._find_model_files()[0], map_location="cpu")
-            )
+            # 2. シャーディングされた全てのsafetensorsファイルをロードして結合する
+            print("Loading transformer state dict from safetensors files to CPU...")
+            model_files = self._find_model_files()
+            if not model_files:
+                raise FileNotFoundError(f"No safetensors model files found in {self.model_path}")
+
+            combined_state_dict = {}
+            for file_path in model_files:
+                print(f"  -> Loading shard: {os.path.basename(file_path)}")
+                shard_state_dict = load_file(file_path, device="cpu")
+                combined_state_dict.update(shard_state_dict)
+
+            self.transformer.load_state_dict(combined_state_dict)
+            del combined_state_dict  # メモリを即時解放
+            print("State dict loaded successfully.")
 
             self.transformer.eval() 
             self.transformer.high_quality_fp32_output_for_inference = True 
             self.transformer.requires_grad_(False)
             
-            # 2. VRAMモードに応じてデバイス配置を決定する
+            # 3. VRAMモードに応じてデバイス配置を決定する
             if self.next_state['high_vram']:
                 print("High VRAM mode: Moving entire transformer to GPU...")
                 self.transformer.to(self.device)
@@ -180,21 +193,22 @@ class TransformerManager:
             traceback.print_exc()
             self.current_state['is_loaded'] = False
             return False
+    # ★★★★★ ここまでが主要な修正箇所 ★★★★★
 
-    # ▼▼▼ 追加したdisposeメソッド ▼▼▼
     def dispose(self):
         """
         Transformerモデルの後片付けを行う。
         DynamicSwapInstallerのアンインストール、CPUへの移動、インスタンス削除を含む。
         """
         if not self.transformer or not self.current_state['is_loaded']:
-            return
+            # is_loadedでなくても、仮想モデルのインスタンスは存在しうるので解放を試みる
+            if not self.transformer:
+                return
 
         print("Disposing Transformer model...")
         
         # 低VRAMモードでDynamicSwapInstallerを使用した場合、パッチを解除する
-        # この処理は self.current_state['high_vram'] が False の場合にのみ実行されるべき
-        if not self.current_state['high_vram']:
+        if self.current_state.get('is_loaded', False) and not self.current_state['high_vram']:
             print("Uninstalling DynamicSwapInstaller patches from Transformer...")
             DynamicSwapInstaller.uninstall_model(self.transformer)
         
