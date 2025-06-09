@@ -5,9 +5,9 @@ import traceback
 from accelerate import init_empty_weights
 import gc
 
-# --- ローカルのdiffusersからインポートすることを明示 ---
+# DynamicSwapInstallerをインポート
 from .hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
-from .memory import get_cuda_free_memory_gb # get_cuda_free_memory_gb を直接インポート
+from .memory import get_cuda_free_memory_gb, DynamicSwapInstaller
 
 class TransformerManager:
     """
@@ -126,11 +126,13 @@ class TransformerManager:
         return model_files
 
     def _reload_transformer(self):
+        """
+        モデルを再ロードする。
+        device_map="auto"の代わりにDynamicSwapInstallerを使用する方式に変更。
+        """
         try:
             if self.transformer is not None:
-                ### ▼▼▼ IndentationError 修正箇所 ▼▼▼ ###
-                # 既存のモデルを解放する処理が抜けていたため、インデントエラーが発生していました。
-                # メモリを解放するためのコードをここに追加します。
+                # 既存のモデルを解放する処理
                 print("Disposing existing transformer model...")
                 self.current_state['is_loaded'] = False
                 del self.transformer
@@ -138,37 +140,34 @@ class TransformerManager:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             
-            # ▼ デバッグログ追加 ▼
             print(f"[DEBUG] VRAM Free before Transformer reload: {get_cuda_free_memory_gb(self.device):.2f} GB")
             print("Reloading transformer...")
             print(f"Applying new settings from model path: {self.model_path}")
 
-            # ▼ device_map="auto" を使ったロード処理 ▼
-            print("Loading transformer with automatic device mapping (offloading)...")
+            # 1. device_map を使わずに、まずCPUにモデルをロードする
+            print("Loading transformer to CPU first...")
             self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
                 self.model_path,
                 torch_dtype=torch.bfloat16,
-                local_files_only=True,
-                device_map="auto",
-                offload_folder="offload",
-                offload_state_dict=True
-            )
-            
-            # ▼ デバッグログ追加 ▼
-            print("Transformer loaded via device_map.")
-            try:
-                # 実際にパラメータがどのデバイスにあるか確認
-                print(f"  - Transformer execution device: {self.transformer.device}")
-                print(f"  - Transformer sample parameter device: {next(self.transformer.parameters()).device}")
-            except Exception as e:
-                print(f"  - Could not check parameter device: {e}")
-            print(f"[DEBUG] VRAM Free after Transformer reload: {get_cuda_free_memory_gb(self.device):.2f} GB")
+                local_files_only=True
+            ).cpu()
 
             self.transformer.eval() 
             self.transformer.high_quality_fp32_output_for_inference = True 
-            self.transformer.requires_grad_(False) 
+            self.transformer.requires_grad_(False)
             
-            # ▼ Gradient Checkpointing 有効化 ▼
+            # 2. VRAMモードに応じてデバイス配置を決定する
+            if self.next_state['high_vram']:
+                print("High VRAM mode: Moving entire transformer to GPU...")
+                self.transformer.to(self.device)
+            else:
+                print("Low VRAM mode: Applying DynamicSwapInstaller...")
+                # device_map="auto"の代わりにDynamicSwapInstallerを適用 
+                DynamicSwapInstaller.install_model(self.transformer, device=self.device) [cite: 1, 2]
+            
+            print(f"[DEBUG] VRAM Free after Transformer setup: {get_cuda_free_memory_gb(self.device):.2f} GB")
+
+            # Gradient Checkpointing 有効化
             if hasattr(self.transformer, 'enable_gradient_checkpointing'):
                 print("Enabling gradient checkpointing to conserve VRAM during inference...")
                 self.transformer.enable_gradient_checkpointing()
