@@ -68,7 +68,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
     # --- 2. パラメータの準備 ---
-    prompt = args.prompt
+    prompt = args.prompts
     seed = args.seed
     steps = anim_args.steps
     width, height = args.W, args.H
