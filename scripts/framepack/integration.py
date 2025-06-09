@@ -12,7 +12,7 @@ from .memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
     get_cuda_free_memory_gb,
-    DynamicSwapInstaller, # 低VRAMモード用にインポート
+    DynamicSwapInstaller,
 )
 from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
@@ -24,8 +24,7 @@ from scripts.diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, SiglipImageProcessor
 from .clip_vision import hf_clip_vision_encode
 
-# ▼▼▼ マネージャークラスを独立して定義 ▼▼▼
-
+# --- マネージャークラス定義 (変更なし) ---
 class VaeManager:
     """Hunyuan VAEのロードとライフサイクルを管理するクラス"""
     def __init__(self, device, high_vram_mode: bool, model_path: str):
@@ -40,10 +39,7 @@ class VaeManager:
     def _load_model(self):
         print(f"Loading Hunyuan VAE from: {self.model_path}")
         self.model = AutoencoderKLHunyuanVideo.from_pretrained(
-            self.model_path,
-            subfolder='vae',
-            torch_dtype=torch.bfloat16,
-            local_files_only=True
+            self.model_path, subfolder='vae', torch_dtype=torch.bfloat16, local_files_only=True
         ).cpu()
         self.model.eval()
         self.model.requires_grad_(False)
@@ -51,8 +47,7 @@ class VaeManager:
         print("Hunyuan VAE loaded.")
 
     def get_model(self):
-        if not self.is_loaded:
-            self._load_model()
+        if not self.is_loaded: self._load_model()
         return self.model
 
     def dispose(self):
@@ -77,11 +72,8 @@ class ImageEncoderManager:
         if not self.is_loaded:
             print(f"Loading Image Encoder from: {self.model_path}")
             self.model = CLIPVisionModelWithProjection.from_pretrained(
-                self.model_path, 
-                subfolder="image_encoder", 
-                torch_dtype=torch.bfloat16,
-                local_files_only=True,
-                ignore_mismatched_sizes=True
+                self.model_path, subfolder="image_encoder", torch_dtype=torch.bfloat16,
+                local_files_only=True, ignore_mismatched_sizes=True
             ).cpu()
             self.model.eval()
             self.is_loaded = True
@@ -114,7 +106,6 @@ class ImageProcessorManager:
         return self.processor
 
     def dispose(self):
-        # Pythonオブジェクトなのでdelだけでよい
         if self.processor is not None:
             print("Disposing Image Processor...")
             del self.processor
@@ -142,18 +133,14 @@ class TokenizerManager:
     def dispose(self):
         if self.tokenizer is not None:
             print("Disposing Tokenizers...")
-            del self.tokenizer
-            del self.tokenizer_2
-            self.tokenizer = None
-            self.tokenizer_2 = None
+            del self.tokenizer; del self.tokenizer_2
+            self.tokenizer = None; self.tokenizer_2 = None
             self.is_loaded = False
-
-# ▲▲▲ ここまで ▲▲▲
 
 
 class FramepackIntegration:
     """FramePack F1のモデル管理とビデオ生成を統合する司令塔クラス。"""
-
+    # __init__ から generate_video まで変更なしのため省略
     def __init__(self, device):
         self.device = device
         self.managers = None
@@ -161,46 +148,38 @@ class FramepackIntegration:
         self.discovery = FramepackDiscovery()
 
     def _initialize_managers(self, local_paths: dict[str, str]):
-        """解決済みの絶対パスを受け取り、各モデルマネージャーを初期化する。"""
         global_managers = {}
         free_mem_gb = get_cuda_free_memory_gb(self.device)
         high_vram = free_mem_gb > 16
 
         print("Initializing managers with explicit model paths...")
         
-        # ▼▼▼ 外部で定義したマネージャークラスをインスタンス化 ▼▼▼
         global_managers["transformer"] = TransformerManager(
             device=self.device, 
             high_vram_mode=high_vram, 
             use_f1_model=True,
             model_path=local_paths.get("transformer")
         )
-
         global_managers["text_encoder"] = TextEncoderManager(
             device=self.device, 
             high_vram_mode=high_vram,
             model_path=local_paths.get("text_encoder")
         )
-        
         global_managers["image_encoder"] = ImageEncoderManager(
             device=self.device, 
             model_path=local_paths.get("flux_bfl")
         )
-
         global_managers["image_processor"] = ImageProcessorManager(
             model_path=local_paths.get("flux_bfl")
         )
-
         global_managers["vae"] = VaeManager(
             device=self.device, 
             high_vram_mode=high_vram,
             model_path=local_paths.get("vae")
         )
-        
         global_managers["tokenizers"] = TokenizerManager(
             model_path=local_paths.get("text_encoder")
         )
-        # ▲▲▲ ここまで ▲▲▲
         
         print("All managers initialized.")
         return global_managers
@@ -226,8 +205,7 @@ class FramepackIntegration:
                 "One or more FramePack F1 models are missing. Please download them manually before running Deforum.\n"
                 "Missing repositories:\n"
             )
-            for repo in missing_repos:
-                error_message += f" - {repo}\n"
+            for repo in missing_repos: error_message += f" - {repo}\n"
             error_message += "You can use the standalone downloader script if needed: 'python extensions/sd-forge-deforum/scripts/framepack/model_downloader.py'"
             raise FileNotFoundError(error_message)
         
@@ -251,12 +229,9 @@ class FramepackIntegration:
 
         print("Step 4: Offloading base SD model from VRAM...")
         self.sdxl_components = self._get_sdxl_components(shared.sd_model)
-        if self.sdxl_components["unet"]:
-            offload_model_from_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
-        if self.sdxl_components["vae"]:
-            offload_model_from_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
-        if self.sdxl_components["text_encoders"]:
-            offload_model_from_device_for_memory_preservation(self.sdxl_components["text_encoders"], self.device)
+        if self.sdxl_components["unet"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
+        if self.sdxl_components["vae"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
+        if self.sdxl_components["text_encoders"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["text_encoders"], self.device)
         
         gc.collect()
         torch.cuda.empty_cache()
@@ -265,13 +240,11 @@ class FramepackIntegration:
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
         managers = self.managers
         
-        # 各マネージャーからモデルやプロセッサーのインスタンスを取得します。
         f1_vae = managers["vae"].get_model()
         f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get_tokenizers()
         f1_image_processor = managers["image_processor"].get_processor()
         f1_image_encoder = managers["image_encoder"].get_model()
 
-        # Deforumのプロンプトスケジュールから最初のプロンプトを取得します。
         prompt_text = ""
         prompts_schedule = args.prompts
         if not isinstance(prompts_schedule, dict) or not prompts_schedule:
@@ -382,8 +355,7 @@ class FramepackIntegration:
                 prompt_embeds=llama_vec,
                 prompt_poolers=clip_l_pooler,
                 generator=generator,
-                width=args.W,
-                height=args.H,
+                width=args.W, height=args.H,
                 image_embeds=image_embeds,
                 indices_latents=None,
                 device=self.device,
@@ -403,26 +375,22 @@ class FramepackIntegration:
         save_bcthw_as_mp4(final_video_frames, output_path, fps=video_args.fps)
         print(f"[FramePack F1] Video saved to {output_path}")
 
+
     def cleanup_environment(self):
+        """
+        全てのマネージャーの後片付けを行い、ベースのSDモデルをVRAMに戻す。
+        """
         if self.managers is None:
             print("Cleanup skipped: managers were not initialized.")
             return
 
+        # ▼▼▼ 修正箇所 ▼▼▼
         print("Cleaning up FramePack F1 environment...")
         
-        # ▼▼▼ 各マネージャーのdisposeを呼び出すように修正 ▼▼▼
-        # accelerateで管理されているtransformerは特別扱い
-        f1_transformer_manager = self.managers.get("transformer")
-        if f1_transformer_manager and f1_transformer_manager.transformer is not None:
-            print("Deleting Transformer instance managed by Accelerate...")
-            del f1_transformer_manager.transformer
-            f1_transformer_manager.transformer = None
-        
-        # 他コンポーネントはdisposeを呼び出す
+        # 全てのマネージャーのdisposeを呼び出すことで、責務を各マネージャーに委譲する
         for manager_name, manager in self.managers.items():
-            if manager_name == "transformer":
-                continue # 上で処理済み
             if manager and hasattr(manager, 'dispose'):
+                print(f"Disposing manager: {manager_name}...")
                 manager.dispose()
         # ▲▲▲ ここまで ▲▲▲
         
@@ -441,3 +409,38 @@ class FramepackIntegration:
             move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
         
         print("Cleanup complete.")
+
+
+### 補足：transformer_manager.py に追加すべき dispose メソッド
+
+# 以下のメソッドを TransformerManager クラスの末尾に追加してください。
+
+def dispose(self):
+    """
+    Transformerモデルの後片付けを行う。
+    DynamicSwapInstallerのアンインストール、CPUへの移動、インスタンス削除を含む。
+    """
+    if not self.transformer:
+        return
+
+    print("Disposing Transformer model...")
+    
+    # 低VRAMモードでDynamicSwapInstallerを使用した場合、パッチを解除する
+    if not self.current_state['high_vram']:
+        print("Uninstalling DynamicSwapInstaller patches from Transformer...")
+        DynamicSwapInstaller.uninstall_model(self.transformer)
+    
+    try:
+        # モデルをCPUに移動
+        self.transformer.to(cpu)
+    except Exception as e:
+        print(f"Could not move transformer to cpu: {e}")
+
+    # 参照を削除
+    del self.transformer
+    self.transformer = None
+    
+    # 状態をリセット
+    self.current_state['is_loaded'] = False
+
+    print("Transformer disposed.")
