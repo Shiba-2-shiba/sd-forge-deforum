@@ -18,16 +18,16 @@ from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
 from .k_diffusion_hunyuan import sample_hunyuan
 from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
-# ★★★ 修正/追加箇所 ★★★
 from .utils import resize_and_center_crop, save_bcthw_as_mp4, numpy2pytorch, crop_or_pad_yield_mask, soft_append_bcthw
 from .bucket_tools import find_nearest_bucket
-# ★★★★★★★★★★★★★★★★
 from .discovery import FramepackDiscovery
 from scripts.diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, SiglipImageProcessor
 from .clip_vision import hf_clip_vision_encode
 
 # --- マネージャークラス定義 (変更なし) ---
+# VaeManager, ImageEncoderManager, ImageProcessorManager, TokenizerManager は変更がないため省略
+
 class VaeManager:
     """Hunyuan VAEのロードとライフサイクルを管理するクラス"""
     def __init__(self, device, high_vram_mode: bool, model_path: str):
@@ -74,7 +74,6 @@ class ImageEncoderManager:
     def get_model(self):
         if not self.is_loaded:
             print(f"Loading Image Encoder from: {self.model_path}")
-            # ★★★ 修正箇所：ImageEncoderはSiglipVisionModelではなくCLIPVisionModelWithProjectionが正しい ★★★
             self.model = CLIPVisionModelWithProjection.from_pretrained(
                 self.model_path, subfolder="image_encoder", torch_dtype=torch.bfloat16,
                 local_files_only=True, ignore_mismatched_sizes=True
@@ -140,7 +139,6 @@ class TokenizerManager:
             del self.tokenizer; del self.tokenizer_2
             self.tokenizer = None; self.tokenizer_2 = None
             self.is_loaded = False
-
 
 class FramepackIntegration:
     """FramePack F1のモデル管理とビデオ生成を統合する司令塔クラス。"""
@@ -264,11 +262,9 @@ class FramepackIntegration:
 
         pil_init_image = Image.open(args.init_image).convert("RGB")
         
-        # ★★★ 修正箇所：解像度の最適化 (Bucket Resolution) ★★★
         print(f"Original resolution: {pil_init_image.width}x{pil_init_image.height}")
         optimal_height, optimal_width = find_nearest_bucket(pil_init_image.height, pil_init_image.width, resolution=640)
         print(f"Optimized to bucket resolution: {optimal_width}x{optimal_height}")
-        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
         print(f"[DEBUG] Initial VRAM Free: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
@@ -292,7 +288,6 @@ class FramepackIntegration:
             print("[DEBUG] Moving VAE to GPU for encoding...")
             move_model_to_device_with_memory_preservation(f1_vae, self.device)
             init_image_np = np.array(pil_init_image)
-            # ★★★ 修正箇所：最適化された解像度を使用 ★★★
             init_image_np = resize_and_center_crop(init_image_np, optimal_width, optimal_height)
             init_tensor = numpy2pytorch([init_image_np])
             init_tensor = init_tensor.unsqueeze(2)
@@ -315,14 +310,12 @@ class FramepackIntegration:
             f1_tokenizer, f1_tokenizer_2,
         )
 
-        # ★★★ 修正箇所：プロンプト埋め込みとマスクの厳密な処理 ★★★
         llama_vec, prompt_mask = crop_or_pad_yield_mask(llama_vec, length=512)
         
         llama_vec = llama_vec.to(self.device)
-        prompt_mask = prompt_mask.to(self.device) # マスクもGPUへ
+        prompt_mask = prompt_mask.to(self.device)
         clip_l_pooler = clip_l_pooler.to(self.device)
         print(f"[DEBUG] Prompt conditioning created. llama_vec shape: {llama_vec.shape}, clip_l_pooler shape: {clip_l_pooler.shape}, prompt_mask shape: {prompt_mask.shape}")
-        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
         print("[FramePack F1] Disposing text encoders...")
         managers["text_encoder"].dispose_text_encoders()
@@ -334,14 +327,16 @@ class FramepackIntegration:
 
         f1_transformer = managers["transformer"].get_transformer()
 
-        # ★★★ 修正箇所：履歴をCPUで管理し、高度なコンテキスト管理を導入 ★★★
-        history_latents = start_latent.clone().cpu()
-        total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
+        history_latents_cpu = start_latent.clone().cpu()
+        
+        # latent_window_size と total_sections の計算をリファレンス実装に合わせる
+        latent_window_size = getattr(framepack_f1_args, 'f1_latent_window_size', 9)
+        frames_per_section = latent_window_size * 4 - 3
+        total_sections = int(max(round((anim_args.max_frames) / frames_per_section), 1))
         
         seed = args.seed if args.seed != -1 else torch.seed()
-        generator = torch.Generator(device="cpu").manual_seed(int(seed)) # generatorはCPUで初期化
+        generator = torch.Generator(device="cpu").manual_seed(int(seed))
         print(f"[FramePack F1] Using seed: {seed}")
-        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
         print("\n" + "="*40)
         print("[DEBUG] PRE-SAMPLING CHECK")
@@ -351,35 +346,32 @@ class FramepackIntegration:
             print(f"  - Transformer Sample Param Device: {next(f1_transformer.parameters()).device}")
         except Exception as e:
             print(f"  - Could not determine transformer device: {e}")
-        print(f"  - history_latents (initial_latent on CPU): Shape={history_latents.shape}, Dtype={history_latents.dtype}, Device={history_latents.device}")
-        print(f"  - prompt_embeds (llama_vec): Shape={llama_vec.shape}, Dtype={llama_vec.dtype}, Device={llama_vec.device}")
-        print(f"  - prompt_poolers (clip_l_pooler): Shape={clip_l_pooler.shape}, Dtype={clip_l_pooler.dtype}, Device={clip_l_pooler.device}")
-        print(f"  - image_embeddings: Shape={image_embeddings_for_transformer.shape}, Dtype={image_embeddings_for_transformer.dtype}, Device={image_embeddings_for_transformer.device}")
+        print(f"  - history_latents (initial_latent on CPU): Shape={history_latents_cpu.shape}, Dtype={history_latents_cpu.dtype}, Device={history_latents_cpu.device}")
         print(f"  - VRAM Free before sampling loop: {get_cuda_free_memory_gb(self.device):.2f} GB")
         print("="*40 + "\n")
 
         # --- ループ内でのビデオ生成とデコード ---
-        final_video_frames_list = []
-        final_video_frames_list.append(vae_decode(start_latent, f1_vae).cpu())
+        history_pixels_decoded = None
 
         for i_section in range(total_sections):
             if shared.state.interrupted: break
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
             shared.state.job_no = i_section + 1
 
-            # ★★★ 修正箇所：リファレンス実装からコンテキスト管理ロジックを移植 ★★★
-            current_history_gpu = history_latents.to(self.device)
-            latent_window_size = getattr(framepack_f1_args, 'f1_latent_window_size', 9) # デフォルト9
+            current_history_gpu = history_latents_cpu.to(self.device)
             
-            # 各種インデックスを計算
+            # ★★★ 修正箇所: `frames`引数の計算と追加 ★★★
+            # モデルが期待する時間次元をサンプラーに正しく伝えるための最重要修正
+            frames_to_generate = latent_window_size * 4 - 3
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★
+            
             indices = torch.arange(0, sum([1, 16, 2, 1, latent_window_size])).unsqueeze(0)
             clean_latent_indices_start, clean_latent_4x_indices, clean_latent_2x_indices, clean_latent_1x_indices, latent_indices = indices.split([1, 16, 2, 1, latent_window_size], dim=1)
             clean_latent_indices = torch.cat([clean_latent_indices_start, clean_latent_1x_indices], dim=1)
 
-            # 履歴の長さに基づき、複数解像度のコンテキストを準備
             if current_history_gpu.shape[2] > (16 + 2 + 1):
                 clean_latents_4x, clean_latents_2x, clean_latents_1x = current_history_gpu[:, :, -sum([16, 2, 1]):, :, :].split([16, 2, 1], dim=2)
-            else: # 初回など履歴が短い場合
+            else:
                 clean_latents_4x = torch.zeros((1, 16, 16, current_history_gpu.shape[3], current_history_gpu.shape[4]), device=self.device, dtype=current_history_gpu.dtype)
                 clean_latents_2x = torch.zeros((1, 16, 2, current_history_gpu.shape[3], current_history_gpu.shape[4]), device=self.device, dtype=current_history_gpu.dtype)
                 clean_latents_1x = current_history_gpu[:,:,-1:,:,:]
@@ -390,6 +382,7 @@ class FramepackIntegration:
                 transformer=f1_transformer,
                 strength=framepack_f1_args.f1_image_strength,
                 num_inference_steps=framepack_f1_args.f1_generation_latent_size,
+                frames=frames_to_generate,  # <-- ★★★ ここで`frames`を渡す ★★★
                 prompt_embeds=llama_vec,
                 prompt_embeds_mask=prompt_mask,
                 prompt_poolers=clip_l_pooler,
@@ -397,7 +390,6 @@ class FramepackIntegration:
                 width=optimal_width, height=optimal_height,
                 image_embeddings=image_embeddings_for_transformer,
                 device=self.device,
-                # --- 新しく追加するコンテキスト引数 ---
                 latent_indices=latent_indices,
                 clean_latents=clean_latents,
                 clean_latent_indices=clean_latent_indices,
@@ -407,32 +399,32 @@ class FramepackIntegration:
                 clean_latent_4x_indices=clean_latent_4x_indices,
             )
             
-            history_latents = torch.cat([history_latents, generated_latents.cpu()], dim=2)
+            history_latents_cpu = torch.cat([history_latents_cpu, generated_latents.cpu()], dim=2)
             
-            # ★★★ 修正箇所：逐次デコードと結合 ★★★
+            # ★★★ 修正箇所：リファレンス実装に合わせた逐次デコードと結合ロジック ★★★
             try:
                 print(f"[DEBUG] Decoding section {i_section + 1}...")
                 move_model_to_device_with_memory_preservation(f1_vae, self.device)
                 
-                # デコードは最後のセクションのみ行い、soft_appendで結合
+                # デコードは最後のNフレームのみ行い、soft_appendで結合
                 section_to_decode = generated_latents
-                overlap_frames = 4 # 例: 4フレーム分のoverlapで結合
                 decoded_section = vae_decode(section_to_decode, f1_vae).cpu()
 
-                if i_section == 0:
-                     final_video_frames_list[0] = soft_append_bcthw(final_video_frames_list[0], decoded_section, overlap=overlap_frames)
+                if history_pixels_decoded is None:
+                    # 初回は全履歴をデコード
+                    history_pixels_decoded = vae_decode(history_latents_cpu, f1_vae).cpu()
                 else:
-                    last_video = final_video_frames_list.pop()
-                    final_video_frames_list.append(soft_append_bcthw(last_video, decoded_section, overlap=overlap_frames))
+                    # 2回目以降はsoft_append_bcthwでスムーズに結合
+                    overlap_frames = frames_per_section # 例: 生成された全フレームをオーバーラップとして結合
+                    history_pixels_decoded = soft_append_bcthw(history_pixels_decoded, decoded_section, overlap=overlap_frames)
 
                 print(f"[DEBUG] VRAM Free after section VAE decoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
             finally:
                 offload_model_from_device_for_memory_preservation(f1_vae, self.device)
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★
-
-        final_video_frames = torch.cat(final_video_frames_list, dim=2)
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        
         output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
-        save_bcthw_as_mp4(final_video_frames, output_path, fps=video_args.fps)
+        save_bcthw_as_mp4(history_pixels_decoded, output_path, fps=video_args.fps)
         print(f"[FramePack F1] Video saved to {output_path}")
 
 
