@@ -197,18 +197,40 @@ class FramepackIntegration:
         torch.cuda.empty_cache()
         print("Environment setup complete.")
 
-    # integration.py の generate_video メソッドを修正
-
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
         managers = self.managers
-        # (中略)
+        
+        ### ▼▼▼ NameError修正のため追加したブロック ▼▼▼ ###
+        # 各マネージャーからモデルやプロセッサーのインスタンスを取得します。
+        f1_vae = managers["vae"].get()
+        f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get()
+        f1_image_processor = managers["image_processor"].get()
+        f1_image_encoder = managers["image_encoder"].get()
+
+        # Deforumのプロンプトスケジュールから最初のプロンプトを取得します。
+        prompt_text = ""
+        prompts_schedule = args.prompts
+        if not isinstance(prompts_schedule, dict) or not prompts_schedule:
+            raise ValueError("Prompts are not in the expected dictionary format or are empty. Please check your Deforum prompt settings.")
+        try:
+            # フレーム番号でソートして最初のキーを取得
+            first_frame_key = sorted(prompts_schedule.keys(), key=int)[0]
+            prompt_text = prompts_schedule[first_frame_key]
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Could not extract the first prompt from the schedule: {e}")
+        if not prompt_text:
+            raise ValueError("The first prompt in the schedule is empty. Please provide a prompt.")
+        
+        print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
+        ### ▲▲▲ ここまでを追加 ▲▲▲ ###
+
         pil_init_image = Image.open(args.init_image).convert("RGB")
         
         ### ▼ デバッグログ追加 ▼ ###
         print(f"[DEBUG] Initial VRAM Free: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
         try:
-            print("[DEBUG] Moving Image Encoder to GPU...") ### ▼ デバッグログ追加 ▼ ###
+            print("[DEBUG] Moving Image Encoder to GPU...")
             move_model_to_device_with_memory_preservation(f1_image_encoder, self.device)
             init_image_np_for_clip = np.array(pil_init_image)
             image_encoder_output = hf_clip_vision_encode(
@@ -217,15 +239,14 @@ class FramepackIntegration:
                 image_encoder=f1_image_encoder
             )
             image_embeds = image_encoder_output.image_embeds
-            ### ▼ デバッグログ追加 ▼ ###
             print(f"[DEBUG] image_embeds created. Shape: {image_embeds.shape}, Device: {image_embeds.device}")
             print(f"[DEBUG] VRAM Free after Image Encoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
         finally:
             offload_model_from_device_for_memory_preservation(f1_image_encoder, self.device)
-            print("[DEBUG] Image Encoder offloaded from GPU.") ### ▼ デバッグログ追加 ▼ ###
+            print("[DEBUG] Image Encoder offloaded from GPU.")
 
         try:
-            print("[DEBUG] Moving VAE to GPU for encoding...") ### ▼ デバッグログ追加 ▼ ###
+            print("[DEBUG] Moving VAE to GPU for encoding...")
             move_model_to_device_with_memory_preservation(f1_vae, self.device)
             init_image_np = np.array(pil_init_image)
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
@@ -233,18 +254,16 @@ class FramepackIntegration:
             init_tensor = init_tensor.unsqueeze(2)
             
             start_latent = vae_encode(init_tensor, f1_vae)
-            ### ▼ デバッグログ追加 ▼ ###
             print(f"[DEBUG] start_latent created. Shape: {start_latent.shape}, Device: {start_latent.device}")
             print(f"[DEBUG] VRAM Free after VAE encoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
         finally:
             offload_model_from_device_for_memory_preservation(f1_vae, self.device)
-            print("[DEBUG] VAE offloaded from GPU.") ### ▼ デバッグログ追加 ▼ ###
+            print("[DEBUG] VAE offloaded from GPU.")
 
-        # (中略)
+        print("[FramePack F1] Encoding prompts and then forcefully clearing text encoders from VRAM...")
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         
-        ### ▼ デバッグログ追加 ▼ ###
         print(f"[DEBUG] Text Encoders loaded. VRAM Free: {get_cuda_free_memory_gb(self.device):.2f} GB")
         
         llama_vec, clip_l_pooler = encode_prompt_conds(
@@ -254,7 +273,6 @@ class FramepackIntegration:
         llama_vec = llama_vec.to(self.device)
         clip_l_pooler = clip_l_pooler.to(self.device)
         
-        ### ▼ デバッグログ追加 ▼ ###
         print(f"[DEBUG] Prompt conditioning created. llama_vec shape: {llama_vec.shape}, clip_l_pooler shape: {clip_l_pooler.shape}")
         
         print("[FramePack F1] Disposing text encoders...")
@@ -262,32 +280,25 @@ class FramepackIntegration:
         if managers["text_encoder"]: managers["text_encoder"].dispose_text_encoders()
 
         gc.collect(); torch.cuda.empty_cache()
-        # VRAM解放後の状態をログに出力 
         print(f"[FramePack F1] VRAM cleaned. Free space: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
-        # Transformerの状態確保 
         if not managers["transformer"].ensure_transformer_state():
-            ### ▼ エラーハンドリング強化 ▼ ###
             raise RuntimeError("Failed to load or setup the Transformer model. Check logs for OOM errors.")
 
         f1_transformer = managers["transformer"].get_transformer()
 
-        # (Gradient Checkpointingの有効化処理は前回の提案通りmanager内で行うか、ここで行う)
-
         history_latents = start_latent.clone()
-        # (中略)
+        total_sections = int(max(round((anim_args.max_frames) / (framepack_f1_args.f1_generation_latent_size * 4 - 3)), 1))
         history_latents = history_latents.to(self.device)
-        seed = args.seed if args.seed != -1 else torch.seed() # 
-        generator = torch.Generator(device=self.device).manual_seed(int(seed)) # 
-        print(f"[FramePack F1] Using seed: {seed}") # 
+        seed = args.seed if args.seed != -1 else torch.seed()
+        generator = torch.Generator(device=self.device).manual_seed(int(seed))
+        print(f"[FramePack F1] Using seed: {seed}")
 
-        ### ▼ デバッグログ強化 ▼ ###
         print("\n" + "="*40)
         print("[DEBUG] PRE-SAMPLING CHECK")
         print(f"  - Target Device: {self.device}")
         try:
             print(f"  - Transformer Device: {f1_transformer.device}")
-            # .device アトリビュートがない場合や、device_map使用時の確認
             print(f"  - Transformer Sample Param Device: {next(f1_transformer.parameters()).device}")
         except Exception as e:
             print(f"  - Could not determine transformer device: {e}")
@@ -299,10 +310,9 @@ class FramepackIntegration:
         print("="*40 + "\n")
 
         for i_section in range(total_sections):
+            if shared.state.interrupted: break
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
             shared.state.job_no = i_section + 1
-            if shared.state.interrupted:
-                break
 
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
@@ -318,14 +328,16 @@ class FramepackIntegration:
                 indices_latents=None,
                 device=self.device,
             )
-
             history_latents = torch.cat([history_latents, generated_latents], dim=2)
 
         try:
+            print("[DEBUG] Moving VAE to GPU for decoding...")
             move_model_to_device_with_memory_preservation(f1_vae, self.device)
             final_video_frames = vae_decode(history_latents, f1_vae)
+            print(f"[DEBUG] VRAM Free after VAE decoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
         finally:
             offload_model_from_device_for_memory_preservation(f1_vae, self.device)
+            print("[DEBUG] VAE offloaded from GPU.")
 
         output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
         save_bcthw_as_mp4(final_video_frames, output_path, fps=video_args.fps)
