@@ -8,10 +8,10 @@ import json
 from modules import shared
 from modules.devices import cpu
 
+# ▼▼▼【修正点1】 'model_on_device' のインポートを削除 ▼▼▼
 from .memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
-    model_on_device,
     get_cuda_free_memory_gb,
 )
 from .transformer_manager import TransformerManager
@@ -223,21 +223,23 @@ class FramepackIntegration:
         
         pil_init_image = Image.open(args.init_image).convert("RGB")
         
-        with model_on_device(f1_image_encoder, self.device):
+        # ▼▼▼【修正点2】 'with model_on_device(...)' を 'try...finally' に置換 ▼▼▼
+        try:
+            move_model_to_device_with_memory_preservation(f1_image_encoder, self.device)
             image_pixels = f1_image_processor(images=pil_init_image, return_tensors="pt").pixel_values
             image_pixels = image_pixels.to(self.device, dtype=torch.bfloat16)
             image_embeds = f1_image_encoder(image_pixels).image_embeds
+        finally:
+            offload_model_from_device_for_memory_preservation(f1_image_encoder, self.device)
 
-        # ▼▼▼【修正点1】誤った形式のindices_latentsを生成するコードを削除 ▼▼▼
-        # h_latent, w_latent = args.H // 8, args.W // 8
-        # y_indices = torch.arange(h_latent, device=self.device).unsqueeze(1).expand(h_latent, w_latent)
-        # x_indices = torch.arange(w_latent, device=self.device).unsqueeze(0).expand(h_latent, w_latent)
-        # indices_latents = torch.stack([y_indices, x_indices], dim=0).unsqueeze(0)
-        
-        with model_on_device(f1_vae, self.device):
+        # ▼▼▼【修正点3】 'with model_on_device(...)' を 'try...finally' に置換 ▼▼▼
+        try:
+            move_model_to_device_with_memory_preservation(f1_vae, self.device)
             init_image_np = np.array(pil_init_image)
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
             start_latent = vae_encode(init_image_np, f1_vae)
+        finally:
+            offload_model_from_device_for_memory_preservation(f1_vae, self.device)
 
         print("[FramePack F1] Encoding prompts and then forcefully clearing text encoders from VRAM...")
         
@@ -292,7 +294,6 @@ class FramepackIntegration:
             if shared.state.interrupted:
                 break
 
-            # ▼▼▼【修正点2】indices_latents引数に `None` を明示的に渡す ▼▼▼
             generated_latents = sample_hunyuan(
                 transformer=f1_transformer,
                 initial_latent=history_latents[:, :, -1:],
@@ -304,14 +305,18 @@ class FramepackIntegration:
                 width=args.W,
                 height=args.H,
                 image_embeds=image_embeds,
-                indices_latents=None, # 必須引数のため None を渡す
+                indices_latents=None,
                 device=self.device,
             )
 
             history_latents = torch.cat([history_latents, generated_latents], dim=2)
 
-        with model_on_device(f1_vae, self.device):
+        # ▼▼▼【修正点4】 'with model_on_device(...)' を 'try...finally' に置換 ▼▼▼
+        try:
+            move_model_to_device_with_memory_preservation(f1_vae, self.device)
             final_video_frames = vae_decode(history_latents, f1_vae)
+        finally:
+            offload_model_from_device_for_memory_preservation(f1_vae, self.device)
 
         output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
         save_bcthw_as_mp4(final_video_frames, output_path, fps=video_args.fps)
