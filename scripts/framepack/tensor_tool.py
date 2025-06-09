@@ -31,7 +31,7 @@ from .memory import (
     offload_model_from_device_for_memory_preservation,
 )
 
-# [FIX 4] スケジュール文字列から数値を抽出するヘルパー関数
+# スケジュール文字列から数値を抽出するヘルパー関数
 def parse_schedule_string(schedule_str: str) -> float:
     """ "0: (1.23)" のような文字列から数値部分を抽出する """
     match = re.search(r'\((.*?)\)', schedule_str)
@@ -58,6 +58,10 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     image_processor_manager = managers["image_processor"]
     tokenizer_manager = managers["tokenizers"]
     
+    # ★★★ 修正箇所1: モデルを取得する前に、各マネージャーにロードを指示する ★★★
+    transformer_manager.ensure_transformer_state()
+    text_encoder_manager.ensure_text_encoder_state()
+    
     transformer = transformer_manager.get_transformer()
     text_encoder, text_encoder_2 = text_encoder_manager.get_text_encoders()
     vae = vae_manager.get_model()
@@ -65,6 +69,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     image_processor = image_processor_manager.get_processor()
     tokenizer, tokenizer_2 = tokenizer_manager.get_tokenizers()
     
+    # 状態が確定した後にVRAMモードを取得
     high_vram = transformer_manager.current_state['high_vram']
 
     # --- 2. パラメータの準備 ---
@@ -73,24 +78,14 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     steps = args.steps
     width, height = args.W, args.H
 
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★                  エラー修正箇所 (複数)                 ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # [FIX 1, 2, 4] .get()の代わりにgetattrを使い、正しいオブジェクトから値を取得し、文字列をパースする
     cfg = parse_schedule_string(anim_args.strength_schedule)
     gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
-    
-    # [FIX 1] rsはargsに存在しないため、安全にデフォルト値を取得する
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
-    
-    # [FIX 3] 正しいパラメータ名でアクセスする
     latent_window_size = framepack_f1_args.f1_generation_latent_size
-    
-    # [FIX 1] use_vae_cacheはargsに存在しないため、安全にデフォルト値を取得する
     use_vae_cache = getattr(framepack_f1_args, 'use_vae_cache', False)
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
     job_id = generate_timestamp()
+    # ★★★ 修正箇所2: 正しい出力ディレクトリ変数を参照する ★★★
     output_path = os.path.join(args.outdir, f"{job_id}.mp4")
 
     # --- 3. プロンプトエンコード ---
@@ -142,7 +137,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     # --- 5. サンプリングの実行 ---
     print("[tensor_tool] Starting sampling loop...")
     if not high_vram:
-        # [FIX 1] 安全にデフォルト値を取得
         preserved_memory = getattr(framepack_f1_args, 'preserved_memory', 8.0)
         move_model_to_device_with_memory_preservation(transformer, target_device=device, preserved_memory_gb=preserved_memory)
 
