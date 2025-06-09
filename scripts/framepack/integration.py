@@ -242,6 +242,12 @@ class FramepackIntegration:
             init_image_np = resize_and_center_crop(init_image_np, args.W, args.H)
             # NumPy配列をPyTorchテンソルに変換
             init_tensor = numpy2pytorch([init_image_np])
+            
+            # ★★★ 修正箇所 ★★★
+            # ビデオVAE (AutoencoderKLHunyuanVideo) は5Dテンソル (B, C, T, H, W) を
+            # 期待するため、4Dテンソル (B, C, H, W) に時間(T)の次元を追加します。
+            init_tensor = init_tensor.unsqueeze(2)
+            
             start_latent = vae_encode(init_tensor, f1_vae)
         finally:
             offload_model_from_device_for_memory_preservation(f1_vae, self.device)
