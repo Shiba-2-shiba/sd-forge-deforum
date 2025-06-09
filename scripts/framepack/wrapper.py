@@ -16,43 +16,25 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=1.0):
     return noise_cfg
 
 
-def fm_wrapper(transformer, device, t_scale=1000.0):
+def fm_wrapper(transformer, t_scale=1000.0):
     def k_model(x, sigma, **extra_args):
-
         dtype = extra_args['dtype']
         cfg_scale = extra_args['cfg_scale']
         cfg_rescale = extra_args['cfg_rescale']
         concat_latent = extra_args['concat_latent']
 
         original_dtype = x.dtype
-        
-        # --- ▼▼▼【修正箇所】▼▼▼ ---
-        # 1. 推論に使用するターゲットデバイスを明示的に使用
-        model_device = device
+        sigma = sigma.float()
 
-        # 2. 【デバッグログ】各デバイスの状態を出力
-        actual_device = next(transformer.parameters()).device
-        print(f"[DEBUG wrapper.py] Devices: input_x={x.device}, sampler_arg={device}, actual_model_params={actual_device}")
-
-        # 3. 入力テンソルをターゲットデバイスに移動
-        x = x.to(device=model_device, dtype=dtype)
-        sigma = sigma.to(device=model_device).float()
-        # --- ▲▲▲【修正箇所】▲▲▲ ---
-
+        x = x.to(dtype)
         timestep = (sigma * t_scale).to(dtype)
 
         if concat_latent is None:
             hidden_states = x
         else:
-            # concat_latentも同じデバイスに転送
-            concat_latent = concat_latent.to(device=model_device)
-            hidden_states = torch.cat([x, concat_latent], dim=1)
-
-        # 4. 【デバッグログ】transformer呼び出し直前の状態を出力
-        print(f"[DEBUG wrapper.py] Before transformer call: hidden_states.device={hidden_states.device}")
+            hidden_states = torch.cat([x, concat_latent.to(x)], dim=1)
 
         pred_positive = transformer(hidden_states=hidden_states, timestep=timestep, return_dict=False, **extra_args['positive'])[0].float()
-        
 
         if cfg_scale == 1.0:
             pred_negative = torch.zeros_like(pred_positive)
