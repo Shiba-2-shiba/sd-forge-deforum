@@ -6025,3 +6025,206 @@ except OSError as e:
         # その他のOSErrorの場合は元のエラーを表示
         print(translate("\nエラーが発生しました: {e}").format(e=e))
         input(translate("続行するには何かキーを押してください..."))
+
+import os
+import torch
+import gc
+import numpy as np
+from PIL import Image
+
+# tensor_tool.pyが依存する可能性のあるモジュールをインポート
+# （すでにあれば不要ですが、念のため記載します）
+from .memory import (
+    move_model_to_device_with_memory_preservation,
+    offload_model_from_device_for_memory_preservation,
+    get_cuda_free_memory_gb,
+)
+from .k_diffusion_hunyuan import sample_hunyuan
+from .hunyuan import vae_encode, vae_decode, encode_prompt_conds
+from .utils import resize_and_center_crop, save_bcthw_as_mp4, numpy2pytorch, crop_or_pad_yield_mask, soft_append_bcthw
+from .bucket_tools import find_nearest_bucket
+from .clip_vision import hf_clip_vision_encode
+from .vae_cache import vae_decode_cache
+
+
+def execute_generation(managers, device, args, anim_args, video_args, framepack_f1_args, root):
+    """
+    integration.pyから呼び出される動画生成のメイン関数。
+    Deforumの引数と初期化済みのマネージャーを受け取り、動画生成の全プロセスを実行する。
+    """
+    print("[Tensor Tool] Starting video generation process...")
+
+    # =================================================================
+    # ここから元の integration.py の generate_video メソッドのロジック
+    # =================================================================
+
+    f1_vae = managers["vae"].get_model()
+    f1_tokenizer, f1_tokenizer_2 = managers["tokenizers"].get_tokenizers()
+    f1_image_processor = managers["image_processor"].get_processor()
+    f1_image_encoder = managers["image_encoder"].get_model()
+
+    prompt_text = ""
+    prompts_schedule = args.prompts
+    if not isinstance(prompts_schedule, dict) or not prompts_schedule:
+        raise ValueError("Prompts are not in the expected dictionary format or are empty.")
+    try:
+        # 'modules'のインポートが必要な場合
+        from modules import shared
+        first_frame_key = sorted(prompts_schedule.keys(), key=int)[0]
+        prompt_text = prompts_schedule[first_frame_key]
+    except (ValueError, IndexError) as e:
+        raise ValueError(f"Could not extract the first prompt from the schedule: {e}")
+    if not prompt_text:
+        raise ValueError("The first prompt in the schedule is empty.")
+    
+    print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
+
+    pil_init_image = Image.open(args.init_image).convert("RGB")
+    
+    print(f"Original resolution: {pil_init_image.width}x{pil_init_image.height}")
+    optimal_height, optimal_width = find_nearest_bucket(pil_init_image.height, pil_init_image.width, resolution=640)
+    print(f"Optimized to bucket resolution: {optimal_width}x{optimal_height}")
+
+    print(f"[DEBUG] Initial VRAM Free: {get_cuda_free_memory_gb(device):.2f} GB")
+
+    try:
+        print("[DEBUG] Moving Image Encoder to GPU...")
+        move_model_to_device_with_memory_preservation(f1_image_encoder, device)
+        image_encoder_output = hf_clip_vision_encode(
+            image=np.array(pil_init_image),
+            feature_extractor=f1_image_processor,
+            image_encoder=f1_image_encoder
+        )
+        # エラー10: Transformerモデルが期待する次元に合わせる 
+        image_embeddings_for_transformer = image_encoder_output.last_hidden_state
+        print(f"[DEBUG] image_embeddings_for_transformer created. Shape: {image_embeddings_for_transformer.shape}")
+    finally:
+        offload_model_from_device_for_memory_preservation(f1_image_encoder, device)
+        print("[DEBUG] Image Encoder offloaded from GPU.")
+
+    try:
+        print("[DEBUG] Moving VAE to GPU for encoding...")
+        move_model_to_device_with_memory_preservation(f1_vae, device)
+        init_image_np = resize_and_center_crop(np.array(pil_init_image), optimal_width, optimal_height)
+        init_tensor = numpy2pytorch([init_image_np]).unsqueeze(2)
+        start_latent = vae_encode(init_tensor, f1_vae)
+        print(f"[DEBUG] start_latent created. Shape: {start_latent.shape}")
+    finally:
+        offload_model_from_device_for_memory_preservation(f1_vae, device)
+        print("[DEBUG] VAE offloaded from GPU.")
+
+    print("[FramePack F1] Encoding prompts and then forcefully clearing text encoders from VRAM...")
+    managers["text_encoder"].ensure_text_encoder_state()
+    f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
+    
+    llama_vec, clip_l_pooler = encode_prompt_conds(prompt_text, f1_text_encoder, f1_text_encoder_2, f1_tokenizer, f1_tokenizer_2)
+    # エラー11: アテンションマスクを生成する 
+    llama_vec, prompt_mask = crop_or_pad_yield_mask(llama_vec, length=512)
+    
+    llama_vec, prompt_mask, clip_l_pooler = llama_vec.to(device), prompt_mask.to(device), clip_l_pooler.to(device)
+    print(f"[DEBUG] Prompt conditioning created. llama_vec shape: {llama_vec.shape}, mask shape: {prompt_mask.shape}")
+    
+    print("[FramePack F1] Disposing text encoders...")
+    managers["text_encoder"].dispose_text_encoders()
+    gc.collect(); torch.cuda.empty_cache()
+
+    if not managers["transformer"].ensure_transformer_state():
+        raise RuntimeError("Failed to load or setup the Transformer model. Check logs for OOM errors.")
+
+    f1_transformer = managers["transformer"].get_transformer()
+
+    history_latents_cpu = start_latent.clone().cpu()
+    
+    latent_window_size = getattr(framepack_f1_args, 'f1_latent_window_size', 9)
+    frames_per_section = latent_window_size * 4 - 3
+    total_sections = int(max(round((anim_args.max_frames - 1) / frames_per_section), 1))
+    
+    seed = args.seed if args.seed != -1 else torch.seed()
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    print(f"[FramePack F1] Using seed: {seed}")
+
+    # --- デコード済みピクセル履歴の初期化 ---
+    history_pixels_decoded = None
+    try:
+        print("[DEBUG] Decoding initial frame...")
+        move_model_to_device_with_memory_preservation(f1_vae, device)
+        history_pixels_decoded = vae_decode(start_latent, f1_vae).cpu()
+    finally:
+        offload_model_from_device_for_memory_preservation(f1_vae, device)
+    
+    # --- メイン生成ループ ---
+    for i_section in range(total_sections):
+        # 'modules'のインポートが必要な場合
+        from modules import shared
+        if shared.state.interrupted: break
+        shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
+
+        current_history_gpu = history_latents_cpu.to(device)
+        # エラー12: 一度に生成するフレーム数を指定する 
+        frames_to_generate = latent_window_size * 4 - 3
+        
+        indices = torch.arange(0, sum([1, 16, 2, 1, latent_window_size])).unsqueeze(0)
+        clean_latent_indices_start, clean_latent_4x_indices, clean_latent_2x_indices, clean_latent_1x_indices, latent_indices = indices.split([1, 16, 2, 1, latent_window_size], dim=1)
+        clean_latent_indices = torch.cat([clean_latent_indices_start, clean_latent_1x_indices], dim=1)
+
+        if current_history_gpu.shape[2] > (16 + 2 + 1):
+            clean_latents_4x, clean_latents_2x, clean_latents_1x = current_history_gpu[:, :, -sum([16, 2, 1]):].split([16, 2, 1], dim=2)
+        else:
+            z_like = torch.zeros_like(current_history_gpu)
+            clean_latents_4x = z_like.repeat(1, 1, 16, 1, 1)
+            clean_latents_2x = z_like.repeat(1, 1, 2, 1, 1)
+            clean_latents_1x = current_history_gpu[:,:,-1:]
+
+        clean_latents = torch.cat([start_latent.to(device), clean_latents_1x], dim=2)
+        
+        # エラー3&4: 引数名をモデル定義に合わせる 
+        generated_latents = sample_hunyuan(
+            transformer=f1_transformer,
+            strength=framepack_f1_args.f1_image_strength,
+            num_inference_steps=framepack_f1_args.f1_generation_latent_size,
+            frames=frames_to_generate,
+            prompt_embeds=llama_vec,
+            prompt_embeds_mask=prompt_mask,
+            prompt_poolers=clip_l_pooler,
+            generator=generator,
+            width=optimal_width, height=optimal_height,
+            image_embeddings=image_embeddings_for_transformer,
+            device=device,
+            latent_indices=latent_indices,
+            clean_latents=clean_latents,
+            clean_latent_indices=clean_latent_indices,
+            clean_latents_2x=clean_latents_2x,
+            clean_latent_2x_indices=clean_latent_2x_indices,
+            clean_latents_4x=clean_latents_4x,
+            clean_latent_4x_indices=clean_latent_4x_indices,
+        )
+        
+        history_latents_cpu = torch.cat([history_latents_cpu, generated_latents.cpu()], dim=2)
+        
+        # エラー13: VRAM枯渇対策としてキャッシュ版デコーダーを使用 
+        try:
+            print(f"[DEBUG] Decoding section {i_section + 1} with cache...")
+            move_model_to_device_with_memory_preservation(f1_vae, device)
+            
+            decoded_section = vae_decode_cache(generated_latents, f1_vae).cpu()
+
+            if i_section == 0:
+                # ループの初回は、初期フレームから生成された最初のビデオセクションで
+                # ピクセル履歴を完全に置き換える。
+                history_pixels_decoded = decoded_section
+            else:
+                # 2回目以降は、前のセクションの末尾と現在のセクションの先頭を
+                # `overlap_frames`分だけ滑らかに結合する。
+                overlap_frames = 4
+                history_pixels_decoded = soft_append_bcthw(history_pixels_decoded, decoded_section, overlap=overlap_frames)
+        finally:
+            offload_model_from_device_for_memory_preservation(f1_vae, device)
+    
+    output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
+    save_bcthw_as_mp4(history_pixels_decoded, output_path, fps=video_args.fps)
+    print(f"[FramePack F1] Video saved to {output_path}")
+
+    # 最終的な動画のパスを返す
+    return output_path
+
+# --- ここまでが execute_generation 関数の内容 ---
