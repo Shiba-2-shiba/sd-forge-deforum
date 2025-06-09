@@ -4,9 +4,7 @@ import torch
 import traceback
 from accelerate import init_empty_weights
 
-# --- 修正箇所：ローカルのdiffusersからインポートすることを明示 ---
-# これまでの議論に基づき、このスクリプトは拡張機能内のdiffusersライブラリから
-# HunyuanVideoTransformer3DModelPackedはまちがい
+# --- ローカルのdiffusersからインポートすることを明示 ---
 from scripts.diffusers import HunyuanVideoFramepackTransformer3DModel
 from .memory import DynamicSwapInstaller
 
@@ -16,13 +14,10 @@ class TransformerManager:
     責務：渡された単一のモデルパスに基づき、モデルのライフサイクルを管理する。
     """
 
-    # --- 修正箇所：__init__のシグネチャを変更 ---
-    # model_pathを必須の引数として受け取るようにする
     def __init__(self, device, high_vram_mode: bool, use_f1_model: bool, model_path: str):
         self.transformer = None
         self.device = device
         
-        # --- 修正箇所：model_pathをインスタンス変数として保持 ---
         if not model_path or not os.path.isdir(model_path):
             raise FileNotFoundError(f"TransformerManager received an invalid model_path: {model_path}")
         self.model_path = model_path
@@ -35,7 +30,6 @@ class TransformerManager:
             'fp8_enabled': False,
             'is_loaded': False,
             'high_vram': high_vram_mode,
-            # use_f1_modelは初期化時の情報として保持するが、動的な切り替えは行わない
             'use_f1_model': use_f1_model
         }
 
@@ -46,8 +40,6 @@ class TransformerManager:
         self._load_virtual_transformer()
         print("Transformer model shell created on virtual device.")
         
-    # set_next_settings, _needs_reload, _is_loaded, get_transformer, ensure_transformer_state は
-    # モデルパスの動的な切り替えロジックを削除した以外は、ほぼ変更なし
     def set_next_settings(self, lora_paths=None, lora_scales=None, fp8_enabled=False, high_vram_mode=False, lora_path=None, lora_scale=None, force_dict_split=False):
         if lora_paths is None and lora_path is not None:
             lora_paths = [lora_path]
@@ -71,7 +63,7 @@ class TransformerManager:
             'force_dict_split': force_dict_split,
             'high_vram': high_vram_mode,
             'is_loaded': self.current_state['is_loaded'],
-            'use_f1_model': self.current_state['use_f1_model'] # モデルタイプの動的変更はサポートしない
+            'use_f1_model': self.current_state['use_f1_model']
         }
     
     def _needs_reload(self):
@@ -109,13 +101,10 @@ class TransformerManager:
         print("Using pre-loaded transformer model.")
         return True
     
-    # --- 修正箇所：_load_virtual_transformer を堅牢な方法に修正 ---
     def _load_virtual_transformer(self):
         """仮想デバイスへ空のtransformerをロードする"""
         try:
             with init_empty_weights():
-                # self.model_path から config のみを読み込む
-                # これにより、エラーの原因だった曖昧なパス解決を回避する
                 config = HunyuanVideoFramepackTransformer3DModel.load_config(self.model_path, local_files_only=True)
                 self.transformer = HunyuanVideoFramepackTransformer3DModel.from_config(config, torch_dtype=torch.bfloat16)
             self.transformer.to(torch.bfloat16)
@@ -124,22 +113,16 @@ class TransformerManager:
             traceback.print_exc()
             raise e
 
-    # --- 修正箇所：_find_model_files を堅牢な方法に修正 ---
     def _find_model_files(self):
         """self.model_path から状態辞書のファイルを取得する"""
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(f"The specified model directory does not exist: {self.model_path}")
         
-        # .safetensors ファイルを再帰的に検索
         model_files = glob.glob(os.path.join(self.model_path, '**', '*.safetensors'), recursive=True)
-        # サブディレクトリ内のファイルも考慮されるが、通常はトップレベルにある
         model_files = [f for f in model_files if os.path.basename(f).startswith('diffusion_pytorch_model')]
         
         model_files.sort()
         return model_files
-
-    # --- 削除：責務外のメソッドを削除 ---
-    # _get_model_path と ensure_download_models は不要
 
     def _reload_transformer(self):
         """next_stateの設定でtransformerをリロード"""
@@ -154,48 +137,40 @@ class TransformerManager:
 
             print("Reloading transformer...")
             print(f"Applying new settings from model path: {self.model_path}")
-            # (LoRAやFP8のログ表示は省略)
             
             lora_paths = self.next_state.get('lora_paths', []) or []
             force_dict_split = self.next_state.get('force_dict_split', False)
 
             if (not lora_paths) and not self.next_state['fp8_enabled'] and not force_dict_split:
-                # --- 修正箇所：from_pretrained で self.model_path を直接使用 ---
                 self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
                     self.model_path,
                     torch_dtype=torch.bfloat16,
-                    local_files_only=True # ネットワークアクセスを禁止
+                    local_files_only=True
                 )
                 self.transformer.to(dtype=torch.bfloat16)
             else:
-                # (LoRA / FP8 のロジック)
+                # (この部分はLoRAやFP8使用時のロジックのため、今回は変更なし)
                 if self.next_state['fp8_enabled']:
-                    # (FP8 サポートチェックのロジック)
                     pass
 
-                # --- 修正箇所：_find_model_files の呼び出し方を修正 ---
                 model_files = self._find_model_files()
                 if not model_files:
                     raise FileNotFoundError(f"No .safetensors model files found in {self.model_path}")
-
-                # (LoRA / FP8 適用ロジックは継続)
-                # ...
                 
-                # 仮想モデルの再生成
                 self._load_virtual_transformer()
-                
-                # (状態辞書の読み込みロジックは継続)
-                # ...
+                # (状態辞書の読み込みロジック...)
 
-            self.transformer.cpu()
+            # ★★★ 修正箇所 ★★★
+            # モデルを一度CPUに送る処理とVRAMモードの分岐を削除し、
+            # 常にGPU(self.device)に配置するように変更します。
+            # これにより、低VRAMモード時のデバイス不一致エラーを回避します。
+            
             self.transformer.eval()
             self.transformer.high_quality_fp32_output_for_inference = True
             self.transformer.requires_grad_(False)
             
-            if not self.next_state['high_vram']:
-                DynamicSwapInstaller.install_model(self.transformer, device=self.device)
-            else:
-                self.transformer.to(self.device)
+            print(f"Moving transformer directly to device: {self.device}")
+            self.transformer.to(self.device)
             
             self.next_state['is_loaded'] = True
             self.current_state = self.next_state.copy()
