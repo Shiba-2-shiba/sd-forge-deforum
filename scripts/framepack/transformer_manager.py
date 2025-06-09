@@ -6,7 +6,7 @@ from accelerate import init_empty_weights
 import gc
 
 # --- ローカルのdiffusersからインポートすることを明示 ---
-from scripts.diffusers import HunyuanVideoFramepackTransformer3DModel
+from .hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
 from .memory import get_cuda_free_memory_gb # get_cuda_free_memory_gb を直接インポート
 
 class TransformerManager:
@@ -106,8 +106,8 @@ class TransformerManager:
         """仮想デバイスへ空のtransformerをロードする"""
         try:
             with init_empty_weights():
-                config = HunyuanVideoFramepackTransformer3DModel.load_config(self.model_path, local_files_only=True)
-                self.transformer = HunyuanVideoFramepackTransformer3DModel.from_config(config, torch_dtype=torch.bfloat16)
+                config = HunyuanVideoTransformer3DModelPacked.load_config(self.model_path, local_files_only=True)
+                self.transformer = HunyuanVideoTransformer3DModelPacked.from_config(config, torch_dtype=torch.bfloat16)
             self.transformer.to(torch.bfloat16)
         except Exception as e:
             print(f"Failed to create a virtual transformer from config at {self.model_path}")
@@ -145,7 +145,7 @@ class TransformerManager:
 
             # ▼ device_map="auto" を使ったロード処理 ▼
             print("Loading transformer with automatic device mapping (offloading)...")
-            self.transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
+            self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
                 self.model_path,
                 torch_dtype=torch.bfloat16,
                 local_files_only=True,
