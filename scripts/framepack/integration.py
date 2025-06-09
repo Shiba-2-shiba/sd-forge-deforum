@@ -12,7 +12,6 @@ from .memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
     get_cuda_free_memory_gb,
-    DynamicSwapInstaller,
 )
 from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
@@ -24,10 +23,12 @@ from .discovery import FramepackDiscovery
 from scripts.diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaTokenizerFast, CLIPTokenizer, CLIPVisionModelWithProjection, SiglipImageProcessor
 from .clip_vision import hf_clip_vision_encode
+# ★★★ 修正/追加箇所 ★★★
+# VAEのOOMエラー対策として、キャッシュを利用したデコーダーをインポート
+from .vae_cache import vae_decode_cache
+# ★★★★★★★★★★★★★★★★
 
 # --- マネージャークラス定義 (変更なし) ---
-# VaeManager, ImageEncoderManager, ImageProcessorManager, TokenizerManager は変更がないため省略
-
 class VaeManager:
     """Hunyuan VAEのロードとライフサイクルを管理するクラス"""
     def __init__(self, device, high_vram_mode: bool, model_path: str):
@@ -140,6 +141,7 @@ class TokenizerManager:
             self.tokenizer = None; self.tokenizer_2 = None
             self.is_loaded = False
 
+
 class FramepackIntegration:
     """FramePack F1のモデル管理とビデオ生成を統合する司令塔クラス。"""
     def __init__(self, device):
@@ -249,14 +251,14 @@ class FramepackIntegration:
         prompt_text = ""
         prompts_schedule = args.prompts
         if not isinstance(prompts_schedule, dict) or not prompts_schedule:
-            raise ValueError("Prompts are not in the expected dictionary format or are empty. Please check your Deforum prompt settings.")
+            raise ValueError("Prompts are not in the expected dictionary format or are empty.")
         try:
             first_frame_key = sorted(prompts_schedule.keys(), key=int)[0]
             prompt_text = prompts_schedule[first_frame_key]
         except (ValueError, IndexError) as e:
             raise ValueError(f"Could not extract the first prompt from the schedule: {e}")
         if not prompt_text:
-            raise ValueError("The first prompt in the schedule is empty. Please provide a prompt.")
+            raise ValueError("The first prompt in the schedule is empty.")
         
         print(f"[FramePack F1] Using single prompt for entire generation: '{prompt_text}'")
 
@@ -271,15 +273,13 @@ class FramepackIntegration:
         try:
             print("[DEBUG] Moving Image Encoder to GPU...")
             move_model_to_device_with_memory_preservation(f1_image_encoder, self.device)
-            init_image_np_for_clip = np.array(pil_init_image)
             image_encoder_output = hf_clip_vision_encode(
-                image=init_image_np_for_clip,
+                image=np.array(pil_init_image),
                 feature_extractor=f1_image_processor,
                 image_encoder=f1_image_encoder
             )
             image_embeddings_for_transformer = image_encoder_output.last_hidden_state
-            print(f"[DEBUG] image_embeddings_for_transformer created. Shape: {image_embeddings_for_transformer.shape}, Device: {image_embeddings_for_transformer.device}")
-            print(f"[DEBUG] VRAM Free after Image Encoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
+            print(f"[DEBUG] image_embeddings_for_transformer created. Shape: {image_embeddings_for_transformer.shape}")
         finally:
             offload_model_from_device_for_memory_preservation(f1_image_encoder, self.device)
             print("[DEBUG] Image Encoder offloaded from GPU.")
@@ -287,14 +287,10 @@ class FramepackIntegration:
         try:
             print("[DEBUG] Moving VAE to GPU for encoding...")
             move_model_to_device_with_memory_preservation(f1_vae, self.device)
-            init_image_np = np.array(pil_init_image)
-            init_image_np = resize_and_center_crop(init_image_np, optimal_width, optimal_height)
-            init_tensor = numpy2pytorch([init_image_np])
-            init_tensor = init_tensor.unsqueeze(2)
-            
+            init_image_np = resize_and_center_crop(np.array(pil_init_image), optimal_width, optimal_height)
+            init_tensor = numpy2pytorch([init_image_np]).unsqueeze(2)
             start_latent = vae_encode(init_tensor, f1_vae)
-            print(f"[DEBUG] start_latent created. Shape: {start_latent.shape}, Device: {start_latent.device}")
-            print(f"[DEBUG] VRAM Free after VAE encoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
+            print(f"[DEBUG] start_latent created. Shape: {start_latent.shape}")
         finally:
             offload_model_from_device_for_memory_preservation(f1_vae, self.device)
             print("[DEBUG] VAE offloaded from GPU.")
@@ -303,24 +299,15 @@ class FramepackIntegration:
         managers["text_encoder"].ensure_text_encoder_state()
         f1_text_encoder, f1_text_encoder_2 = managers["text_encoder"].get_text_encoders()
         
-        print(f"[DEBUG] Text Encoders loaded. VRAM Free: {get_cuda_free_memory_gb(self.device):.2f} GB")
-        
-        llama_vec, clip_l_pooler = encode_prompt_conds(
-            prompt_text, f1_text_encoder, f1_text_encoder_2,
-            f1_tokenizer, f1_tokenizer_2,
-        )
-
+        llama_vec, clip_l_pooler = encode_prompt_conds(prompt_text, f1_text_encoder, f1_text_encoder_2, f1_tokenizer, f1_tokenizer_2)
         llama_vec, prompt_mask = crop_or_pad_yield_mask(llama_vec, length=512)
         
-        llama_vec = llama_vec.to(self.device)
-        prompt_mask = prompt_mask.to(self.device)
-        clip_l_pooler = clip_l_pooler.to(self.device)
-        print(f"[DEBUG] Prompt conditioning created. llama_vec shape: {llama_vec.shape}, clip_l_pooler shape: {clip_l_pooler.shape}, prompt_mask shape: {prompt_mask.shape}")
-
+        llama_vec, prompt_mask, clip_l_pooler = llama_vec.to(self.device), prompt_mask.to(self.device), clip_l_pooler.to(self.device)
+        print(f"[DEBUG] Prompt conditioning created. llama_vec shape: {llama_vec.shape}, mask shape: {prompt_mask.shape}")
+        
         print("[FramePack F1] Disposing text encoders...")
         managers["text_encoder"].dispose_text_encoders()
         gc.collect(); torch.cuda.empty_cache()
-        print(f"[FramePack F1] VRAM cleaned. Free space: {get_cuda_free_memory_gb(self.device):.2f} GB")
 
         if not managers["transformer"].ensure_transformer_state():
             raise RuntimeError("Failed to load or setup the Transformer model. Check logs for OOM errors.")
@@ -329,52 +316,42 @@ class FramepackIntegration:
 
         history_latents_cpu = start_latent.clone().cpu()
         
-        # latent_window_size と total_sections の計算をリファレンス実装に合わせる
         latent_window_size = getattr(framepack_f1_args, 'f1_latent_window_size', 9)
         frames_per_section = latent_window_size * 4 - 3
-        total_sections = int(max(round((anim_args.max_frames) / frames_per_section), 1))
+        total_sections = int(max(round((anim_args.max_frames - 1) / frames_per_section), 1))
         
         seed = args.seed if args.seed != -1 else torch.seed()
         generator = torch.Generator(device="cpu").manual_seed(int(seed))
         print(f"[FramePack F1] Using seed: {seed}")
 
-        print("\n" + "="*40)
-        print("[DEBUG] PRE-SAMPLING CHECK")
-        print(f"  - Target Device: {self.device}")
-        try:
-            print(f"  - Transformer Device: {f1_transformer.device}")
-            print(f"  - Transformer Sample Param Device: {next(f1_transformer.parameters()).device}")
-        except Exception as e:
-            print(f"  - Could not determine transformer device: {e}")
-        print(f"  - history_latents (initial_latent on CPU): Shape={history_latents_cpu.shape}, Dtype={history_latents_cpu.dtype}, Device={history_latents_cpu.device}")
-        print(f"  - VRAM Free before sampling loop: {get_cuda_free_memory_gb(self.device):.2f} GB")
-        print("="*40 + "\n")
-
-        # --- ループ内でのビデオ生成とデコード ---
+        # --- デコード済みピクセル履歴の初期化 ---
         history_pixels_decoded = None
-
+        try:
+            print("[DEBUG] Decoding initial frame...")
+            move_model_to_device_with_memory_preservation(f1_vae, self.device)
+            history_pixels_decoded = vae_decode(start_latent, f1_vae).cpu()
+        finally:
+            offload_model_from_device_for_memory_preservation(f1_vae, self.device)
+        
+        # --- メイン生成ループ ---
         for i_section in range(total_sections):
             if shared.state.interrupted: break
             shared.state.job = f"FramePack F1: Section {i_section + 1}/{total_sections}"
-            shared.state.job_no = i_section + 1
 
             current_history_gpu = history_latents_cpu.to(self.device)
-            
-            # ★★★ 修正箇所: `frames`引数の計算と追加 ★★★
-            # モデルが期待する時間次元をサンプラーに正しく伝えるための最重要修正
             frames_to_generate = latent_window_size * 4 - 3
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★
             
             indices = torch.arange(0, sum([1, 16, 2, 1, latent_window_size])).unsqueeze(0)
             clean_latent_indices_start, clean_latent_4x_indices, clean_latent_2x_indices, clean_latent_1x_indices, latent_indices = indices.split([1, 16, 2, 1, latent_window_size], dim=1)
             clean_latent_indices = torch.cat([clean_latent_indices_start, clean_latent_1x_indices], dim=1)
 
             if current_history_gpu.shape[2] > (16 + 2 + 1):
-                clean_latents_4x, clean_latents_2x, clean_latents_1x = current_history_gpu[:, :, -sum([16, 2, 1]):, :, :].split([16, 2, 1], dim=2)
+                clean_latents_4x, clean_latents_2x, clean_latents_1x = current_history_gpu[:, :, -sum([16, 2, 1]):].split([16, 2, 1], dim=2)
             else:
-                clean_latents_4x = torch.zeros((1, 16, 16, current_history_gpu.shape[3], current_history_gpu.shape[4]), device=self.device, dtype=current_history_gpu.dtype)
-                clean_latents_2x = torch.zeros((1, 16, 2, current_history_gpu.shape[3], current_history_gpu.shape[4]), device=self.device, dtype=current_history_gpu.dtype)
-                clean_latents_1x = current_history_gpu[:,:,-1:,:,:]
+                z_like = torch.zeros_like(current_history_gpu)
+                clean_latents_4x = z_like.repeat(1, 1, 16, 1, 1)
+                clean_latents_2x = z_like.repeat(1, 1, 2, 1, 1)
+                clean_latents_1x = current_history_gpu[:,:,-1:]
 
             clean_latents = torch.cat([start_latent.to(self.device), clean_latents_1x], dim=2)
             
@@ -382,7 +359,7 @@ class FramepackIntegration:
                 transformer=f1_transformer,
                 strength=framepack_f1_args.f1_image_strength,
                 num_inference_steps=framepack_f1_args.f1_generation_latent_size,
-                frames=frames_to_generate,  # <-- ★★★ ここで`frames`を渡す ★★★
+                frames=frames_to_generate,
                 prompt_embeds=llama_vec,
                 prompt_embeds_mask=prompt_mask,
                 prompt_poolers=clip_l_pooler,
@@ -401,37 +378,24 @@ class FramepackIntegration:
             
             history_latents_cpu = torch.cat([history_latents_cpu, generated_latents.cpu()], dim=2)
             
-            # ★★★ 修正箇所：リファレンス実装に合わせた逐次デコードと結合ロジック ★★★
+            # ★★★ 修正箇所: VAE OOMエラー対策としてキャッシュ版デコーダーを使用 ★★★
             try:
-                print(f"[DEBUG] Decoding section {i_section + 1}...")
+                print(f"[DEBUG] Decoding section {i_section + 1} with cache...")
                 move_model_to_device_with_memory_preservation(f1_vae, self.device)
                 
-                # デコードは最後のNフレームのみ行い、soft_appendで結合
-                section_to_decode = generated_latents
-                decoded_section = vae_decode(section_to_decode, f1_vae).cpu()
+                decoded_section = vae_decode_cache(generated_latents, f1_vae).cpu()
 
-                if history_pixels_decoded is None:
-                    # 初回は全履歴をデコード
-                    history_pixels_decoded = vae_decode(history_latents_cpu, f1_vae).cpu()
-                else:
-                    # 2回目以降はsoft_append_bcthwでスムーズに結合
-                    overlap_frames = frames_per_section # 例: 生成された全フレームをオーバーラップとして結合
-                    history_pixels_decoded = soft_append_bcthw(history_pixels_decoded, decoded_section, overlap=overlap_frames)
-
-                print(f"[DEBUG] VRAM Free after section VAE decoding: {get_cuda_free_memory_gb(self.device):.2f} GB")
+                overlap_frames = 4
+                history_pixels_decoded = soft_append_bcthw(history_pixels_decoded, decoded_section, overlap=overlap_frames)
             finally:
                 offload_model_from_device_for_memory_preservation(f1_vae, self.device)
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
         
         output_path = os.path.join(args.outdir, f"{root.timestring}_framepack_f1.mp4")
         save_bcthw_as_mp4(history_pixels_decoded, output_path, fps=video_args.fps)
         print(f"[FramePack F1] Video saved to {output_path}")
 
-
     def cleanup_environment(self):
-        """
-        全てのマネージャーの後片付けを行い、ベースのSDモデルをVRAMに戻す。
-        """
         if self.managers is None:
             print("Cleanup skipped: managers were not initialized.")
             return
@@ -444,16 +408,12 @@ class FramepackIntegration:
                 manager.dispose()
         
         self.managers = None
-
-        gc.collect()
-        torch.cuda.empty_cache()
+        gc.collect(); torch.cuda.empty_cache()
 
         print("Restoring base SD model to VRAM...")
-        if self.sdxl_components and self.sdxl_components["unet"]:
-            move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
-        if self.sdxl_components and self.sdxl_components["vae"]:
-            move_model_to_device_with_memory_preservation(self.sdxl_components["vae"], self.device)
-        if self.sdxl_components and self.sdxl_components["text_encoders"]:
-            move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
+        if self.sdxl_components:
+            if self.sdxl_components["unet"]: move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
+            if self.sdxl_components["vae"]: move_model_to_device_with_memory_preservation(self.sdxl_components["vae"], self.device)
+            if self.sdxl_components["text_encoders"]: move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
         
         print("Cleanup complete.")
