@@ -11,7 +11,6 @@ from .k_diffusion_hunyuan import sample_hunyuan
 from .utils import (
     crop_or_pad_yield_mask,
     resize_and_center_crop,
-    generate_timestamp,
 )
 from .hunyuan import encode_prompt_conds, vae_encode
 from .clip_vision import hf_clip_vision_encode
@@ -79,7 +78,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
     
-    timestring = root.timestring
     output_path = args.outdir
 
     # --- 3. プロンプトエンコード ---
@@ -136,12 +134,16 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     rnd = torch.Generator(device=device).manual_seed(seed)
 
+    # ★★★ 修正箇所: 正しいフレーム数を計算 ★★★
+    frames_to_generate = latent_window_size * 4 - 3
+    print(f"[tensor_tool] Calculated frames to generate: {frames_to_generate} (from latent_window_size: {latent_window_size})")
+
     sampler_kwargs = dict(
         transformer=transformer,
         sampler="unipc",
         width=bucket_w,
         height=bucket_h,
-        frames=latent_window_size,
+        frames=frames_to_generate,  # ★★★ 修正した値を適用 ★★★
         real_guidance_scale=cfg,
         distilled_guidance_scale=gs,
         guidance_rescale=rs,
@@ -173,7 +175,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     print("[tensor_tool] Applying VAE settings for quality improvement...")
     apply_vae_settings(vae)
 
-    print("[tensor_tool] Using VAE cache for decoding to prevent OOM.")
+    print(f"[tensor_tool] Using VAE cache for decoding {generated_latents.shape[2]} latent frames to prevent OOM.")
     pixels = vae_decode_cache(generated_latents, vae)
 
     if not high_vram: unload_complete_models(vae)
@@ -192,11 +194,10 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
     resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
 
-    # (Frames, Channels, Height, Width) -> (Frames, Height, Width, Channels)
     # .numpy()がbfloat16をサポートしないため、float32に変換してからNumPy配列に変換する
     frames_np = resized_frames_tensor.to(torch.float32).permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
-    # ★★★ 修正点: anim_argsから、開始フレーム設定 'extract_from_frame' を取得 ★★★
+    # anim_argsから、開始フレーム設定 'extract_from_frame' を取得
     start_frame_idx = anim_args.extract_from_frame
     for i, frame_np in enumerate(frames_np):
         current_frame_idx = start_frame_idx + i
@@ -204,11 +205,3 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         pil_images.append(image)
         
         # 指定の命名規則(img_0001.pngなど)に従ってフレームを保存
-        filename = f"img_{current_frame_idx:04d}.png"
-        image.save(os.path.join(output_path, filename))
-    
-    print(f"[tensor_tool] {len(pil_images)} frames generated and saved to: {output_path}")
-    print("[tensor_tool] Video generation finished. Returning PIL images to Deforum for stitching.")
-
-    # DeforumにPILイメージのリストを返す
-    return pil_images
