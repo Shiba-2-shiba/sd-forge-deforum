@@ -1,4 +1,4 @@
-# tensor_tool.py (最終修正版)
+# tensor_tool.py (teacache有効化 修正適用版)
 
 import os
 import torch
@@ -125,6 +125,18 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     if not high_vram:
         preserved_memory = getattr(framepack_f1_args, 'preserved_memory', 8.0)
         move_model_to_device_with_memory_preservation(transformer, target_device=device, preserved_memory_gb=preserved_memory)
+
+    # ★★★★★ ここからが修正箇所 ★★★★★
+    # Teacacheを有効化してサンプリングを高速化する
+    # hunyuan_video_packed.pyに実装されている機能で、計算を動的にスキップして高速化を図る
+    if hasattr(transformer, 'initialize_teacache'):
+        print(f"[tensor_tool] Initializing Teacache for acceleration. Steps: {steps}, Threshold: 0.15")
+        transformer.initialize_teacache(
+            enable_teacache=True,
+            num_steps=steps,         # Deforum UIで設定されたステップ数を渡す
+            rel_l1_thresh=0.15       # ソースコード推奨値（2.1倍高速化）
+        )
+    # ★★★★★ ここまでが修正箇所 ★★★★★
 
     rnd = torch.Generator(device=device).manual_seed(seed)
     
