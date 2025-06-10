@@ -1,4 +1,4 @@
-# tensor_tool.py (最終確定版)
+# tensor_tool.py (修正版)
 
 import os
 import torch
@@ -78,8 +78,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
     
-    output_path = args.outdir
-
     # --- 3. プロンプトエンコード ---
     print("[tensor_tool] Encoding prompts...")
     if not high_vram:
@@ -134,16 +132,22 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     rnd = torch.Generator(device=device).manual_seed(seed)
 
-    # ★★★ 修正箇所: 正しいフレーム数を計算 ★★★
     frames_to_generate = latent_window_size * 4 - 3
     print(f"[tensor_tool] Calculated frames to generate: {frames_to_generate} (from latent_window_size: {latent_window_size})")
+
+    # ★★★ 修正箇所 1: clean_latents と clean_latent_indices を正しく設定 ★★★
+    # sample_hunyuan に初期画像をlatentとして渡す
+    # これにより、サンプラーはどの画像を基準に動画を生成すべきか認識できる
+    clean_latents = initial_latent
+    # initial_latentは1フレームなので、インデックスは0
+    clean_latent_indices = torch.tensor([[0]], device=device)
 
     sampler_kwargs = dict(
         transformer=transformer,
         sampler="unipc",
         width=bucket_w,
         height=bucket_h,
-        frames=frames_to_generate,  # ★★★ 修正した値を適用 ★★★
+        frames=frames_to_generate,
         real_guidance_scale=cfg,
         distilled_guidance_scale=gs,
         guidance_rescale=rs,
@@ -156,9 +160,10 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         negative_prompt_embeds_mask=n_prompt_embeds_mask,
         negative_prompt_poolers=n_prompt_poolers.to(transformer.dtype),
         image_embeddings=image_embeddings.to(transformer.dtype),
-        latent_indices=None,
-        clean_latents=None,
-        clean_latent_indices=None,
+        latent_indices=None, # 初回生成なのでNone
+        # ★★★ 修正箇所 2: 設定した引数をサンプラーに渡す ★★★
+        clean_latents=clean_latents,
+        clean_latent_indices=clean_latent_indices,
         device=device,
         dtype=torch.bfloat16,
     )
@@ -168,14 +173,12 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     if not high_vram:
         offload_model_from_device_for_memory_preservation(transformer, target_device=device, preserved_memory_gb=8.0)
 
-    # --- 6. VAEデコードとフレーム保存 ---
-    print("[tensor_tool] Decoding latents and saving individual frames...")
+    # --- 6. VAEデコードとフレーム返却 ---
+    print(f"[tensor_tool] Decoding {generated_latents.shape[2]} latent frames...")
     if not high_vram: load_model_as_complete(vae, target_device=device)
 
-    print("[tensor_tool] Applying VAE settings for quality improvement...")
     apply_vae_settings(vae)
 
-    print(f"[tensor_tool] Using VAE cache for decoding {generated_latents.shape[2]} latent frames to prevent OOM.")
     pixels = vae_decode_cache(generated_latents, vae)
 
     if not high_vram: unload_complete_models(vae)
@@ -188,20 +191,19 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         resized_frame = torch.nn.functional.interpolate(frame_4d, size=(height, width), mode='bilinear', align_corners=False)
         resized_frames.append(resized_frame)
 
-    # PILイメージリストの返却
+    # PILイメージリストの作成
     pil_images = []
     resized_frames_tensor = torch.cat(resized_frames, dim=0).cpu() 
     resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
     resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
 
-    # .numpy()がbfloat16をサポートしないため、float32に変換してからNumPy配列に変換する
     frames_np = resized_frames_tensor.to(torch.float32).permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
-    # anim_argsから、開始フレーム設定 'extract_from_frame' を取得
-    start_frame_idx = anim_args.extract_from_frame
-    for i, frame_np in enumerate(frames_np):
-        current_frame_idx = start_frame_idx + i
+    for frame_np in frames_np:
         image = Image.fromarray(frame_np)
         pil_images.append(image)
         
-        # 指定の命名規則(img_0001.pngなど)に従ってフレームを保存
+    print(f"[tensor_tool] Generation complete. Returning {len(pil_images)} PIL images to Deforum.")
+    
+    # ★★★ 修正箇所 3: 生成したPILイメージのリストを返す ★★★
+    return pil_images
