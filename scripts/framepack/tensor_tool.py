@@ -177,9 +177,24 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     if not high_vram: unload_complete_models(vae)
 
-    # ★★★ 修正箇所: interpolation前後のテンソル形状をログ出力 ★★★
     print(f"[tensor_tool] Shape before interpolation: {pixels.shape}")
-    pixels = torch.nn.functional.interpolate(pixels, size=(height, width), mode='bilinear', align_corners=False)
+
+    # ★★★ エラー修正箇所 ★★★
+    # 5次元テンソル (B, C, T, H, W) をフレームごとにリサイズする
+    frame_list = list(pixels.split(1, dim=2))
+    resized_frames = []
+    for i, frame in enumerate(frame_list):
+        # 各フレームは (B, C, 1, H, W) -> (B, C, H, W) に変形
+        frame_4d = frame.squeeze(2)
+        # 4Dテンソルを補間
+        resized_frame = torch.nn.functional.interpolate(frame_4d, size=(height, width), mode='bilinear', align_corners=False)
+        # (B, C, 1, H, W) に戻してリストに追加
+        resized_frames.append(resized_frame.unsqueeze(2))
+
+    # リサイズされたフレームを再び5次元テンソルに結合
+    pixels = torch.cat(resized_frames, dim=2)
+    # ★★★ 修正ここまで ★★★
+
     print(f"[tensor_tool] Shape after interpolation to ({height}, {width}): {pixels.shape}")
 
     save_bcthw_as_mp4(pixels, output_path, fps=video_args.fps, crf=18)
