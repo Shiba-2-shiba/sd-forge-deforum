@@ -27,20 +27,3 @@ from .safetensors_utils import (
     MemoryEfficientSafeOpen
 )
 
-# 国際化対応ヘルパー
-try:
-    from locales import i18n
-    HAS_I18N = True
-except ImportError:
-    HAS_I18N = False
-    print("Warning: i18n module not found, using fallback translations")
-
-# 翻訳ヘルパー関数
-def _(text):
-    """国際化対応のためのヘルパー関数"""
-    if HAS_I18N:
-        return i18n.translate(text)
-    return text
-
-# バージョン情報
-__version__ = "1.0.0"
