@@ -1,29 +1,34 @@
-# render_framepack_f1.py (修正後)
-
-"""Entry point for FramePack F1 rendering using integration layer."""
+# render_framepack_f1.py (修正後の完全なコード)
 
 import os
 from scripts.framepack.integration import FramepackIntegration
-# ★★★ 修正箇所1: WebUIのsharedオブジェクトをインポートする ★★★
 from modules import shared
-
 
 def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     """Generate video using FramePack F1 via the integration helper."""
     
-    # --- Hugging Faceのオフラインモード設定は変更なし ---
     print("Forcing Hugging Face Hub to OFFLINE mode for local model loading.")
     os.environ['HF_HUB_OFFLINE'] = '1'
     
+    # integration.pyのsetup_environmentはsd_modelを要求するため、pオブジェクトから渡します。
+    sd_model = root.p.sd_model
     integration = FramepackIntegration(device=root.device)
+    
+    # 返り値を格納する変数を初期化します
+    returned_images = None
+    
     try:
-        # ★★★ 修正箇所2: root.sd_model の代わりに shared.sd_model を渡す ★★★
-        integration.setup_environment(shared.sd_model)
-        integration.generate_video(args, anim_args, video_args, framepack_f1_args, root)
+        integration.setup_environment(sd_model)
+        
+        # ★★★ 修正点1: integration.generate_videoの返り値を受け取ります ★★★
+        returned_images = integration.generate_video(args, anim_args, video_args, framepack_f1_args, root)
+        
     finally:
         integration.cleanup_environment()
         
-        # --- 環境変数を元に戻す処理も変更なし ---
         if 'HF_HUB_OFFLINE' in os.environ:
             print("Restoring Hugging Face Hub to ONLINE mode.")
             del os.environ['HF_HUB_OFFLINE']
+            
+    # ★★★ 修正点2: 受け取った画像を返します。これがUIに表示されます。★★★
+    return returned_images
