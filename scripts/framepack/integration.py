@@ -229,7 +229,7 @@ class FramepackIntegration:
 
             # Deforumのメイン処理はファイルシステム上の画像を直接扱うため、
             # ここで何かを返す必要はない。
-            return None
+            return returned_images
 
         except Exception as e:
             print(f"[FramePack Integration] An error occurred during video generation delegated to tensor_tool.")
