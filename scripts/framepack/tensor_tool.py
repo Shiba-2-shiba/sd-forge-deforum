@@ -1,4 +1,4 @@
-# tensor_tool.py (修正版)
+# tensor_tool.py (最終確定版)
 
 import os
 import torch
@@ -79,7 +79,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
     
-    # ★★★ 修正点: タイムスタンプを anim_args から root オブジェクトに修正 ★★★
     timestring = root.timestring
     output_path = args.outdir
 
@@ -192,15 +191,19 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     resized_frames_tensor = torch.cat(resized_frames, dim=0).cpu() 
     resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
     resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
+
+    # (Frames, Channels, Height, Width) -> (Frames, Height, Width, Channels)
+    # .numpy()がbfloat16をサポートしないため、float32に変換してからNumPy配列に変換する
     frames_np = resized_frames_tensor.to(torch.float32).permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
-    start_frame_idx = anim_args.frame_idx
+    # ★★★ 修正点: anim_argsから、開始フレーム設定 'extract_from_frame' を取得 ★★★
+    start_frame_idx = anim_args.extract_from_frame
     for i, frame_np in enumerate(frames_np):
         current_frame_idx = start_frame_idx + i
         image = Image.fromarray(frame_np)
         pil_images.append(image)
         
-        # Deforumの命名規則に従ってフレームを保存
+        # 指定の命名規則(img_0001.pngなど)に従ってフレームを保存
         filename = f"img_{current_frame_idx:04d}.png"
         image.save(os.path.join(output_path, filename))
     
