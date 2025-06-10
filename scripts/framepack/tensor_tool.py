@@ -192,7 +192,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     resized_frames_tensor = torch.cat(resized_frames, dim=0).cpu() 
     resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
     resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
-    frames_np = resized_frames_tensor.permute(0, 2, 3, 1).numpy().astype(np.uint8)
+    frames_np = resized_frames_tensor.to(torch.float32).permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
     start_frame_idx = anim_args.frame_idx
     for i, frame_np in enumerate(frames_np):
