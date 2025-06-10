@@ -18,43 +18,14 @@ from .memory import (
 )
 from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
+# ★★★ 修正点1: vae_manager.py から VaeManager をインポート ★★★
+from .vae_manager import VaeManager
 from .discovery import FramepackDiscovery
 
 
-# --- マネージャークラス定義 (変更なし) ---
-class VaeManager:
-    """Hunyuan VAEのロードとライフサイクルを管理するクラス"""
-    def __init__(self, device, high_vram_mode: bool, model_path: str):
-        self.model = None
-        self.device = device
-        self.high_vram_mode = high_vram_mode
-        self.is_loaded = False
-        if not model_path or not os.path.isdir(model_path):
-            raise FileNotFoundError(f"VaeManager received an invalid model_path: {model_path}")
-        self.model_path = model_path
-
-    def _load_model(self):
-        print(f"Loading Hunyuan VAE from: {self.model_path}")
-        from scripts.diffusers import AutoencoderKLHunyuanVideo
-        self.model = AutoencoderKLHunyuanVideo.from_pretrained(
-            self.model_path, subfolder='vae', torch_dtype=torch.bfloat16, local_files_only=True
-        ).cpu()
-        self.model.eval()
-        self.model.requires_grad_(False)
-        self.is_loaded = True
-        print("Hunyuan VAE loaded.")
-
-    def get_model(self):
-        if not self.is_loaded: self._load_model()
-        return self.model
-
-    def dispose(self):
-        if self.model is not None:
-            print("Disposing Hunyuan VAE...")
-            self.model.to(cpu)
-            del self.model
-            self.model = None
-            self.is_loaded = False
+# --- マネージャークラス定義 ---
+# ★★★ 修正点2: integration.py 内の古い VaeManager クラス定義を削除 ★★★
+# 古いVaeManagerクラスはここに定義されていましたが、削除されました。
 
 class ImageEncoderManager:
     """Image Encoder (CLIP Vision)のロードとライフサイクルを管理するクラス"""
@@ -172,6 +143,7 @@ class FramepackIntegration:
         global_managers["image_processor"] = ImageProcessorManager(
             model_path=local_paths.get("flux_bfl")
         )
+        # VaeManagerのインスタンス化は、インポートされた高機能版クラスを使用
         global_managers["vae"] = VaeManager(
             device=self.device, 
             high_vram_mode=high_vram,
@@ -237,9 +209,6 @@ class FramepackIntegration:
         torch.cuda.empty_cache()
         print("Environment setup complete.")
 
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★           generate_video メソッドの修正箇所           ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
         """
         動画生成処理を外部モジュール `tensor_tool.py` に委譲する。
@@ -270,11 +239,6 @@ class FramepackIntegration:
             print(f"[FramePack Integration] An error occurred during video generation delegated to tensor_tool.")
             # エラーを再スローして、上位の呼び出し元（run_deforum.pyなど）で処理できるようにする
             raise e
-
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★                   修正箇所はここまで                   ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-
 
     def cleanup_environment(self):
         if self.managers is None:
