@@ -243,5 +243,17 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     print(f"[tensor_tool] Process complete. Saved {saved_count} frames to {output_dir}")
 
-    # ★★★ 修正箇所 ★★★: GradioのUI表示のため、Noneの代わりにファイルパスのリストを返す
-    return saved_filepaths
+    # ★★★ 新しい修正案 ★★★
+    # ユーザーの要望に応え、UIに最後のフレーム画像を表示する。
+    # エラーを回避するため、ファイルパスではなくPIL.Imageオブジェクトを返す。
+    # また、Deforum UIが期待する形式（画像のリスト）に合わせる。
+    last_frame_image = None
+    if 'image' in locals() and isinstance(image, Image.Image):
+        last_frame_image = image  # forループの最後に保存されたPILイメージ
+        print(f"[tensor_tool] Returning the last generated frame as a PIL Image to be displayed in the UI.")
+        # Deforum UIは通常、画像の「リスト」を期待するため、リストに格納して返す
+        return [last_frame_image]
+    else:
+        # 万が一画像が生成されなかった場合
+        print("[tensor_tool] No valid last image found to return. Returning None.")
+        return None
