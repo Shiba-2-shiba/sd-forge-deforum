@@ -128,6 +128,15 @@ def run_deforum(*args):
                 render_input_video(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, root)#TODO: prettify code
             elif anim_args.animation_mode == 'Interpolation':
                 render_interpolation(args, anim_args, video_args, parseq_args, loop_args, controlnet_args, freeu_args, kohya_hrfix_args, root)
+                # ▼▼▼ ここからが修正箇所です ▼▼▼
+            elif anim_args.animation_mode == 'FramePack F1':
+                from .render_framepack_f1 import render_animation_f1
+                # render_animation_f1 からの返り値を受け取ります
+                f1_images = render_animation_f1(args, anim_args, video_args, framepack_f1_args, root)
+                # 返り値が有効なリストであれば、UIに表示する画像リストを更新します
+                if f1_images and isinstance(f1_images, list) and len(f1_images) > 0:
+                    generated_images = f1_images
+            # ▲▲▲ ここまでが修正箇所です ▲▲▲
             elif anim_args.animation_mode == 'FramePack F1':
                 from .render_framepack_f1 import render_animation_f1
                 render_animation_f1(args, anim_args, video_args, framepack_f1_args, root)
