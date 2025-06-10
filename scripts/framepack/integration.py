@@ -1,16 +1,10 @@
+# integration.py (最終確定版)
+
 import os
 import torch
 import gc
-import numpy as np
-from PIL import Image
-import json
 
-from modules import shared
-from modules.devices import cpu
-
-# 外部モジュールとして tensor_tool をインポート
 from . import tensor_tool
-
 from .memory import (
     offload_model_from_device_for_memory_preservation,
     move_model_to_device_with_memory_preservation,
@@ -18,14 +12,9 @@ from .memory import (
 )
 from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
-# ★★★ 修正点1: vae_manager.py から VaeManager をインポート ★★★
 from .vae_manager import VaeManager
 from .discovery import FramepackDiscovery
 
-
-# --- マネージャークラス定義 ---
-# ★★★ 修正点2: integration.py 内の古い VaeManager クラス定義を削除 ★★★
-# 古いVaeManagerクラスはここに定義されていましたが、削除されました。
 
 class ImageEncoderManager:
     """Image Encoder (CLIP Vision)のロードとライフサイクルを管理するクラス"""
@@ -52,10 +41,10 @@ class ImageEncoderManager:
     def dispose(self):
         if self.model is not None:
             print("Disposing Image Encoder...")
-            self.model.to(cpu)
             del self.model
             self.model = None
             self.is_loaded = False
+
 
 class ImageProcessorManager:
     """Image Processorのロードとライフサイクルを管理するクラス"""
@@ -82,6 +71,7 @@ class ImageProcessorManager:
             del self.processor
             self.processor = None
             self.is_loaded = False
+
 
 class TokenizerManager:
     """Tokenizerのロードとライフサイクルを管理するクラス"""
@@ -143,7 +133,6 @@ class FramepackIntegration:
         global_managers["image_processor"] = ImageProcessorManager(
             model_path=local_paths.get("flux_bfl")
         )
-        # VaeManagerのインスタンス化は、インポートされた高機能版クラスを使用
         global_managers["vae"] = VaeManager(
             device=self.device, 
             high_vram_mode=high_vram,
@@ -157,6 +146,10 @@ class FramepackIntegration:
         return global_managers
 
     def _get_sdxl_components(self, sd_model):
+        from modules.sd_models import FakeInitialModel
+        if isinstance(sd_model, FakeInitialModel):
+            return {"unet": None, "vae": None, "text_encoders": None}
+            
         components = {"unet": None, "vae": None, "text_encoders": None}
         if hasattr(sd_model, "model") and hasattr(sd_model.model, "diffusion_model"):
             components["unet"] = sd_model.model.diffusion_model
@@ -212,13 +205,12 @@ class FramepackIntegration:
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
         """
         動画生成処理を外部モジュール `tensor_tool.py` に委譲する。
-        このメソッドは、Deforumの引数と初期化済みのマネージャーを `tensor_tool` に渡す役割を担う。
         """
         print("[FramePack Integration] Delegating video generation to tensor_tool module...")
 
         try:
-            # tensor_tool.pyに定義されたメインの実行関数を呼び出す
-            final_video_path = tensor_tool.execute_generation(
+            # tensor_toolから返されるのはPILイメージのリスト
+            returned_images = tensor_tool.execute_generation(
                 managers=self.managers,
                 device=self.device,
                 args=args,
@@ -228,16 +220,18 @@ class FramepackIntegration:
                 root=root
             )
 
-            if final_video_path and os.path.exists(final_video_path):
-                print(f"[FramePack Integration] Video generation completed successfully. Output: {final_video_path}")
+            # ★★★ 修正点: 戻り値がファイルパスではなくリストであることを正しく扱う ★★★
+            if returned_images and isinstance(returned_images, list) and len(returned_images) > 0:
+                print(f"[FramePack Integration] Generation completed successfully. {len(returned_images)} images returned.")
             else:
-                print("[FramePack Integration] Video generation finished, but no output path was returned.")
+                print("[FramePack Integration] Generation finished, but no images were returned from tensor_tool.")
 
-            return final_video_path # 戻り値を追加
+            # Deforumのメイン処理はファイルシステム上の画像を直接扱うため、
+            # ここで何かを返す必要はない。
+            return None
 
         except Exception as e:
             print(f"[FramePack Integration] An error occurred during video generation delegated to tensor_tool.")
-            # エラーを再スローして、上位の呼び出し元（run_deforum.pyなど）で処理できるようにする
             raise e
 
     def cleanup_environment(self):
@@ -257,8 +251,8 @@ class FramepackIntegration:
 
         print("Restoring base SD model to VRAM...")
         if self.sdxl_components:
-            if self.sdxl_components["unet"]: move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
-            if self.sdxl_components["vae"]: move_model_to_device_with_memory_preservation(self.sdxl_components["vae"], self.device)
+            if self.sdxl_components["unet"]: move_model_to_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
+            if self.sdxl_components["vae"]: move_model_to_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
             if self.sdxl_components["text_encoders"]: move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
         
         print("Cleanup complete.")
