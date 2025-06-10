@@ -5,6 +5,10 @@ This is an experimental fork version designed to run the Wan2.1 model in my own 
   `https://github.com/Wan-Video/Wan2.1`  
 ---
 
+Forgeの「requirements_versions.txt」を編集する必要があります。
+①　peft==0.14.0
+②　huggingface-hub==0.32.4
+
 
 # Zirteq Fluxabled Fork
 
