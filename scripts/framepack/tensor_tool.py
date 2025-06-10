@@ -1,4 +1,4 @@
-# tensor_tool.py (最終修正版)
+# tensor_tool.py (修正版)
 
 import os
 import torch
@@ -9,7 +9,6 @@ from PIL import Image
 # Framepack F1のコア機能とヘルパー関数をインポート
 from .k_diffusion_hunyuan import sample_hunyuan
 from .utils import (
-    # save_bcthw_as_mp4 は不要になるため削除
     crop_or_pad_yield_mask,
     resize_and_center_crop,
     generate_timestamp,
@@ -18,8 +17,6 @@ from .hunyuan import encode_prompt_conds, vae_encode
 from .clip_vision import hf_clip_vision_encode
 from .bucket_tools import find_nearest_bucket
 from .vae_cache import vae_decode_cache
-
-# ★★★ 修正点1: 新規追加した vae_settings.py から設定適用関数をインポート ★★★
 from .vae_settings import apply_vae_settings
 
 # メモリ管理ユーティリティ
@@ -82,8 +79,8 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
     
-    # Deforumのタイムスタンプと出力パスを使用
-    timestring = anim_args.timestring
+    # ★★★ 修正点: タイムスタンプを anim_args から root オブジェクトに修正 ★★★
+    timestring = root.timestring
     output_path = args.outdir
 
     # --- 3. プロンプトエンコード ---
@@ -174,7 +171,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     print("[tensor_tool] Decoding latents and saving individual frames...")
     if not high_vram: load_model_as_complete(vae, target_device=device)
 
-    # ★★★ 修正点2: vae_settings.py の設定をVAEに適用 ★★★
     print("[tensor_tool] Applying VAE settings for quality improvement...")
     apply_vae_settings(vae)
 
@@ -191,17 +187,11 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         resized_frame = torch.nn.functional.interpolate(frame_4d, size=(height, width), mode='bilinear', align_corners=False)
         resized_frames.append(resized_frame)
 
-    # ★★★ 修正点3: MP4保存から個別フレーム保存とPILイメージリストの返却に変更 ★★★
+    # PILイメージリストの返却
     pil_images = []
-    # テンソルをCPUに移動し、[0, 255]の範囲に変換
-    # バッチサイズが1と仮定
     resized_frames_tensor = torch.cat(resized_frames, dim=0).cpu() 
-    # [-1, 1] -> [0, 1]
     resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
-    # [0, 1] -> [0, 255]
     resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
-
-    # (Frames, Channels, Height, Width) -> (Frames, Height, Width, Channels)
     frames_np = resized_frames_tensor.permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
     start_frame_idx = anim_args.frame_idx
@@ -211,7 +201,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         pil_images.append(image)
         
         # Deforumの命名規則に従ってフレームを保存
-        filename = f"{timestring}_{current_frame_idx:09}.png"
+        filename = f"img_{current_frame_idx:04d}.png"
         image.save(os.path.join(output_path, filename))
     
     print(f"[tensor_tool] {len(pil_images)} frames generated and saved to: {output_path}")
