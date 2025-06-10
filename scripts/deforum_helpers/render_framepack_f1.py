@@ -1,29 +1,31 @@
-# render_framepack_f1.py (修正後)
+# render_framepack_f1.py (最終修正版)
 
 """Entry point for FramePack F1 rendering using integration layer."""
 
 import os
 from scripts.framepack.integration import FramepackIntegration
-# ★★★ 修正箇所1: WebUIのsharedオブジェクトをインポートする ★★★
 from modules import shared
 
 
 def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     """Generate video using FramePack F1 via the integration helper."""
-    
-    # --- Hugging Faceのオフラインモード設定は変更なし ---
+
     print("Forcing Hugging Face Hub to OFFLINE mode for local model loading.")
     os.environ['HF_HUB_OFFLINE'] = '1'
-    
+
     integration = FramepackIntegration(device=root.device)
+    # ★★★ 修正箇所1: tryブロックの戻り値を格納する変数を宣言 ★★★
+    returned_data = None
     try:
-        # ★★★ 修正箇所2: root.sd_model の代わりに shared.sd_model を渡す ★★★
         integration.setup_environment(shared.sd_model)
-        integration.generate_video(args, anim_args, video_args, framepack_f1_args, root)
+        # ★★★ 修正箇所2: integration.generate_videoの戻り値をreturned_dataに格納 ★★★
+        returned_data = integration.generate_video(args, anim_args, video_args, framepack_f1_args, root)
     finally:
         integration.cleanup_environment()
-        
-        # --- 環境変数を元に戻す処理も変更なし ---
+
         if 'HF_HUB_OFFLINE' in os.environ:
             print("Restoring Hugging Face Hub to ONLINE mode.")
             del os.environ['HF_HUB_OFFLINE']
+            
+    # ★★★ 修正箇所3: UIに結果を返すため、Noneではなく格納したデータを返す ★★★
+    return returned_data
