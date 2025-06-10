@@ -4,6 +4,8 @@
 
 import os
 from scripts.framepack.integration import FramepackIntegration
+# ★★★ 修正箇所1: WebUIのsharedオブジェクトをインポートする ★★★
+from modules import shared
 
 
 def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
@@ -15,8 +17,8 @@ def render_animation_f1(args, anim_args, video_args, framepack_f1_args, root):
     
     integration = FramepackIntegration(device=root.device)
     try:
-        # ★★★ 修正箇所: root.sd_model を setup_environment に渡す ★★★
-        integration.setup_environment(root.sd_model)
+        # ★★★ 修正箇所2: root.sd_model の代わりに shared.sd_model を渡す ★★★
+        integration.setup_environment(shared.sd_model)
         integration.generate_video(args, anim_args, video_args, framepack_f1_args, root)
     finally:
         integration.cleanup_environment()
