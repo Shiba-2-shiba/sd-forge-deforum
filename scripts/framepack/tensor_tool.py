@@ -221,7 +221,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
         # 修正箇所：ファイル名をDeforum標準の連番形式に修正
         # これにより後続のFFmpegによる動画結合処理が正しく動作します。
-        filename = f"{current_frame_number:09d}.png"
+        filename = f"{root.timestring}_{current_frame_number:09d}.png"
         # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
         filepath = os.path.join(output_dir, filename)
