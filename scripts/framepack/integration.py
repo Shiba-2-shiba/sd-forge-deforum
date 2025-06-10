@@ -161,7 +161,8 @@ class FramepackIntegration:
             components["text_encoders"] = sd_model.cond_stage_model
         return components
 
-    def setup_environment(self):
+    # ★★★ 修正点 1: メソッドの引数に`sd_model`を追加 ★★★
+    def setup_environment(self, sd_model):
         print("Step 1: Checking for required local models...")
         models_exist, missing_repos = self.discovery.check_models_exist()
 
@@ -193,7 +194,8 @@ class FramepackIntegration:
         self.managers = self._initialize_managers(local_paths)
 
         print("Step 4: Offloading base SD model from VRAM...")
-        self.sdxl_components = self._get_sdxl_components(shared.sd_model)
+        # ★★★ 修正点 2: `shared.sd_model`の代わりに引数`sd_model`を使用 ★★★
+        self.sdxl_components = self._get_sdxl_components(sd_model)
         if self.sdxl_components["unet"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
         if self.sdxl_components["vae"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
         if self.sdxl_components["text_encoders"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["text_encoders"], self.device)
@@ -220,7 +222,6 @@ class FramepackIntegration:
                 root=root
             )
 
-            # ★★★ 修正点: 戻り値がファイルパスではなくリストであることを正しく扱う ★★★
             if returned_images and isinstance(returned_images, list) and len(returned_images) > 0:
                 print(f"[FramePack Integration] Generation completed successfully. {len(returned_images)} images returned.")
             else:
@@ -251,8 +252,8 @@ class FramepackIntegration:
 
         print("Restoring base SD model to VRAM...")
         if self.sdxl_components:
-            if self.sdxl_components["unet"]: move_model_to_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
-            if self.sdxl_components["vae"]: move_model_to_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
+            if self.sdxl_components["unet"]: move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
+            if self.sdxl_components["vae"]: move_model_to_device_with_memory_preservation(self.sdxl_components["vae"], self.device)
             if self.sdxl_components["text_encoders"]: move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
         
         print("Cleanup complete.")
