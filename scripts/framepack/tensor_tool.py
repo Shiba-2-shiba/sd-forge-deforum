@@ -73,7 +73,13 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     steps = args.steps
     width, height = args.W, args.H
 
-    cfg = parse_schedule_string(anim_args.strength_schedule)
+    # ★★★ 修正箇所 ★★★
+    # Strength scheduleからstrength値を取得。これが初期画像のノイズ強度を決定します。
+    strength = parse_schedule_string(anim_args.strength_schedule)
+    # Deforumでは通常、cfg_scale_scheduleからCFG値を取得します。
+    # 元のコードではstrength_scheduleが使われていましたが、これは誤りである可能性が高いです。
+    # getattrで安全に取得し、見つからない場合は一般的なデフォルト値7.0を使用します。
+    cfg = parse_schedule_string(getattr(anim_args, 'cfg_scale_schedule', "0: (7.0)"))
     gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
@@ -126,7 +132,6 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         preserved_memory = getattr(framepack_f1_args, 'preserved_memory', 8.0)
         move_model_to_device_with_memory_preservation(transformer, target_device=device, preserved_memory_gb=preserved_memory)
 
-    # Teacacheを有効化してサンプリングを高速化
     if hasattr(transformer, 'initialize_teacache'):
         print(f"[tensor_tool] Initializing Teacache for acceleration. Steps: {steps}, Threshold: 0.15")
         transformer.initialize_teacache(
@@ -137,8 +142,11 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     rnd = torch.Generator(device=device).manual_seed(seed)
     
+    # ★★★ 修正箇所 ★★★
+    # サンプラーが内部で (frames + 3) // 4 の計算を行うため、
+    # 期待するLatentフレーム数(latent_window_size)から逆算した最終フレーム数を渡す。
     frames_to_generate = latent_window_size * 4 - 3
-    print(f"[tensor_tool] Target frames to generate: {frames_to_generate} (from latent_window_size: {latent_window_size})")
+    print(f"[tensor_tool] Requesting sampler to generate latents for {frames_to_generate} final frames (expecting {latent_window_size} keyframes).")
 
     clean_latents = initial_latent
     clean_latent_indices = torch.tensor([[0]], device=device)
@@ -146,9 +154,10 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     sampler_kwargs = dict(
         transformer=transformer,
         sampler="unipc",
+        strength=strength,  # ★★★ 修正箇所 ★★★: 初期ノイズ強度を渡す
         width=bucket_w,
         height=bucket_h,
-        frames=latent_window_size,
+        frames=frames_to_generate, # ★★★ 修正箇所 ★★★: latent_window_size から変更
         real_guidance_scale=cfg,
         distilled_guidance_scale=gs,
         guidance_rescale=rs,
@@ -169,12 +178,16 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     )
     
     generated_latents = sample_hunyuan(**sampler_kwargs)
+    print(f"[tensor_tool] Sampler generated {generated_latents.shape[2]} latent frames.")
 
     if not high_vram:
         offload_model_from_device_for_memory_preservation(transformer, target_device=device, preserved_memory_gb=8.0)
 
     # --- 6. Latent補間、VAEデコード、ファイル保存 ---
-
+    
+    # ★★★ 修正箇所 ★★★
+    # サンプラーが期待通りのキーフレーム数(9)を返すようになったため、
+    # それを最終フレーム数(33)に補間するこの処理は、当初の設計通り必須となります。
     print(f"[tensor_tool] Interpolating {generated_latents.shape[2]} latent frames to {frames_to_generate} frames...")
     if generated_latents.shape[2] != frames_to_generate:
         original_dtype = generated_latents.dtype
@@ -206,34 +219,29 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     resized_frames_tensor = torch.cat(resized_frames, dim=0).cpu() 
     resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
     resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
-    # bfloat16からの変換エラーを回避するため、一度float32に変換
     frames_np = resized_frames_tensor.to(torch.float32).permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
     # Deforumは指定されたフォルダにファイルが保存されることを期待する
     output_dir = args.outdir
-    # このバッチの開始フレーム番号を取得
     start_frame_idx = anim_args.extract_from_frame if hasattr(anim_args, 'extract_from_frame') else 0
 
     saved_count = 0
+    # ★★★ 修正箇所 ★★★: Gradioに返すためファイルパスのリストを初期化
+    saved_filepaths = []
     for i, frame_np in enumerate(frames_np):
         current_frame_number = start_frame_idx + i
-        
-        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-        # 修正箇所：ファイル名をDeforum標準の連番形式に修正
-        # これにより後続のFFmpegによる動画結合処理が正しく動作します。
         filename = f"{root.timestring}_{current_frame_number:09d}.png"
-        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-
         filepath = os.path.join(output_dir, filename)
         
         try:
             image = Image.fromarray(frame_np)
             image.save(filepath)
             saved_count += 1
+            saved_filepaths.append(filepath) # ★★★ 修正箇所 ★★★: 保存したパスをリストに追加
         except Exception as e:
             print(f"[ERROR] Failed to save frame {filename}: {e}")
 
     print(f"[tensor_tool] Process complete. Saved {saved_count} frames to {output_dir}")
 
-    # Deforum本体に処理を戻すため、何も返さない
-    return None
+    # ★★★ 修正箇所 ★★★: GradioのUI表示のため、Noneの代わりにファイルパスのリストを返す
+    return saved_filepaths
