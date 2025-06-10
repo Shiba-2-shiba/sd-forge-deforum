@@ -1,4 +1,4 @@
-# integration.py (最終確定版)
+# integration.py (最終修正・エラー解決版)
 
 import os
 import torch
@@ -161,7 +161,6 @@ class FramepackIntegration:
             components["text_encoders"] = sd_model.cond_stage_model
         return components
 
-    # ★★★ 修正点 1: メソッドの引数に`sd_model`を追加 ★★★
     def setup_environment(self, sd_model):
         print("Step 1: Checking for required local models...")
         models_exist, missing_repos = self.discovery.check_models_exist()
@@ -194,7 +193,6 @@ class FramepackIntegration:
         self.managers = self._initialize_managers(local_paths)
 
         print("Step 4: Offloading base SD model from VRAM...")
-        # ★★★ 修正点 2: `shared.sd_model`の代わりに引数`sd_model`を使用 ★★★
         self.sdxl_components = self._get_sdxl_components(sd_model)
         if self.sdxl_components["unet"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
         if self.sdxl_components["vae"]: offload_model_from_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
@@ -211,7 +209,7 @@ class FramepackIntegration:
         print("[FramePack Integration] Delegating video generation to tensor_tool module...")
 
         try:
-            # tensor_toolから返されるのはPILイメージのリスト
+            # tensor_toolから画像のファイルパスリストが返される
             returned_images = tensor_tool.execute_generation(
                 managers=self.managers,
                 device=self.device,
@@ -227,9 +225,11 @@ class FramepackIntegration:
             else:
                 print("[FramePack Integration] Generation finished, but no images were returned from tensor_tool.")
 
-            # Deforumのメイン処理はファイルシステム上の画像を直接扱うため、
-            # ここで何かを返す必要はない。
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+            # 修正箇所: GradioのUIに表示するため、Noneではなくファイルパスのリストを返す
+            # これによりUIのクラッシュが解決されます。
             return returned_images
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
         except Exception as e:
             print(f"[FramePack Integration] An error occurred during video generation delegated to tensor_tool.")
