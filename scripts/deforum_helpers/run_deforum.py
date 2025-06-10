@@ -33,6 +33,7 @@ from pathlib import Path
 from .rendering.util.log_utils import UNDERLINE, YELLOW, ORANGE, RED, RESET_COLOR
 from .settings import save_settings_from_animation_run
 from .deforum_controlnet import num_of_models
+from PIL import Image
 
 from scripts.deforum_api import JobStatusTracker
 from scripts.deforum_api_models import DeforumJobPhase
@@ -115,6 +116,10 @@ def run_deforum(*args):
 
         if not is_use_experimental_render_core(anim_args):  # The experimental core provides its own tqdm directly.
             shared.total_tqdm = DeforumTQDM(args, anim_args, parseq_args, video_args)
+        generated_images = []
+        if anim_args.animation_mode not in ['FramePack F1']:
+            if root.first_frame is not None:
+                generated_images = [root.first_frame]
 
         try:  # dispatch to appropriate renderer
             JobStatusTracker().update_phase(job_id, DeforumJobPhase.GENERATING)
@@ -131,11 +136,13 @@ def run_deforum(*args):
                 # ▼▼▼ ここからが修正箇所です ▼▼▼
             elif anim_args.animation_mode == 'FramePack F1':
                 from .render_framepack_f1 import render_animation_f1
-                # render_animation_f1 からの返り値を受け取ります
                 f1_images = render_animation_f1(args, anim_args, video_args, framepack_f1_args, root)
                 # 返り値が有効なリストであれば、UIに表示する画像リストを更新します
-                if f1_images and isinstance(f1_images, list) and len(f1_images) > 0:
+                if f1_images and isinstance(f1_images, list) and len(f1_images) > 0 and isinstance(f1_images[0], Image.Image):
                     generated_images = f1_images
+                    print(f"Framepack F1: Received {len(f1_images)} image(s) for UI display.")
+                else:
+                    print("WARNING: Framepack F1 did not return valid images. UI will be empty or show a dummy image.")
             # ▲▲▲ ここまでが修正箇所です ▲▲▲
             elif anim_args.animation_mode == 'FramePack F1':
                 from .render_framepack_f1 import render_animation_f1
