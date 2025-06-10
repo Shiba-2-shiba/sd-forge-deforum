@@ -7,8 +7,6 @@ import torch
 from tqdm import tqdm
 from .lora_utils import merge_lora_to_state_dict
 
-# 国際化対応
-from locales.i18n_extended import translate as _
 
 def load_and_apply_lora(
     model_files,
