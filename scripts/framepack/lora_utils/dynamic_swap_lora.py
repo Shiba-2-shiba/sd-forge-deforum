@@ -7,8 +7,6 @@ import os
 import torch
 import warnings
 
-# 国際化対応
-from locales.i18n_extended import translate as _
 
 
 class DynamicSwapLoRAManager:
