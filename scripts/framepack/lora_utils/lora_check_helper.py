@@ -4,8 +4,6 @@
 
 import torch
 
-# 国際化対応
-from locales.i18n_extended import translate as _
 
 def check_lora_applied(model):
     """
