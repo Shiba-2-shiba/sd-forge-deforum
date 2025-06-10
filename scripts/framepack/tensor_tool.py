@@ -225,7 +225,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     for i, frame_np in enumerate(frames_np):
         current_frame_number = start_frame_idx + i
         # Deforumの命名規則に合わせる（例: 000000005.png）
-        filename = f"{current_frame_number:09d}.png"
+        filename = f"{timestring}_{current_frame_idx:09}.png"
         filepath = os.path.join(output_dir, filename)
         
         try:
