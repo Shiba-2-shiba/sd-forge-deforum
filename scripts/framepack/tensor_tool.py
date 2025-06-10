@@ -1,4 +1,4 @@
-# tensor_tool.py (teacache有効化 修正適用版)
+# tensor_tool.py (最終修正・安定版)
 
 import os
 import torch
@@ -126,34 +126,29 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         preserved_memory = getattr(framepack_f1_args, 'preserved_memory', 8.0)
         move_model_to_device_with_memory_preservation(transformer, target_device=device, preserved_memory_gb=preserved_memory)
 
-    # ★★★★★ ここからが修正箇所 ★★★★★
-    # Teacacheを有効化してサンプリングを高速化する
-    # hunyuan_video_packed.pyに実装されている機能で、計算を動的にスキップして高速化を図る
+    # Teacacheを有効化してサンプリングを高速化
     if hasattr(transformer, 'initialize_teacache'):
         print(f"[tensor_tool] Initializing Teacache for acceleration. Steps: {steps}, Threshold: 0.15")
         transformer.initialize_teacache(
             enable_teacache=True,
-            num_steps=steps,         # Deforum UIで設定されたステップ数を渡す
-            rel_l1_thresh=0.15       # ソースコード推奨値（2.1倍高速化）
+            num_steps=steps,
+            rel_l1_thresh=0.15
         )
-    # ★★★★★ ここまでが修正箇所 ★★★★★
 
     rnd = torch.Generator(device=device).manual_seed(seed)
     
-    # ★★★ 修正点1: フレーム数の計算式は「最終的なフレーム数」として維持 ★★★
     frames_to_generate = latent_window_size * 4 - 3
     print(f"[tensor_tool] Target frames to generate: {frames_to_generate} (from latent_window_size: {latent_window_size})")
 
     clean_latents = initial_latent
     clean_latent_indices = torch.tensor([[0]], device=device)
 
-    # ★★★ 修正点2: sample_hunyuanの'frames'引数は「生成するLatentのキーフレーム数」なので、latent_window_sizeを渡す ★★★
     sampler_kwargs = dict(
         transformer=transformer,
         sampler="unipc",
         width=bucket_w,
         height=bucket_h,
-        frames=latent_window_size, # 生成するLatentのフレーム数を指定
+        frames=latent_window_size,
         real_guidance_scale=cfg,
         distilled_guidance_scale=gs,
         guidance_rescale=rs,
@@ -180,15 +175,13 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     # --- 6. Latent補間、VAEデコード、ファイル保存 ---
 
-    # ★★★ 修正点3: 生成されたLatentをターゲットフレーム数に補間する ★★★
     print(f"[tensor_tool] Interpolating {generated_latents.shape[2]} latent frames to {frames_to_generate} frames...")
     if generated_latents.shape[2] != frames_to_generate:
         original_dtype = generated_latents.dtype
-        # interpolateはfloat32を要求することがある
         generated_latents = torch.nn.functional.interpolate(
             generated_latents.to(torch.float32),
             size=(frames_to_generate, generated_latents.shape[3], generated_latents.shape[4]),
-            mode='nearest'  # 最近傍補間
+            mode='nearest'
         )
         generated_latents = generated_latents.to(original_dtype)
         print(f"[tensor_tool] Interpolation complete. New latent shape: {generated_latents.shape}")
@@ -213,9 +206,9 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     resized_frames_tensor = torch.cat(resized_frames, dim=0).cpu() 
     resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
     resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
+    # bfloat16からの変換エラーを回避するため、一度float32に変換
     frames_np = resized_frames_tensor.to(torch.float32).permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
-    # ★★★ 修正点4: 画像をファイルに直接保存し、リストは返さない ★★★
     # Deforumは指定されたフォルダにファイルが保存されることを期待する
     output_dir = args.outdir
     # このバッチの開始フレーム番号を取得
@@ -224,8 +217,13 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     saved_count = 0
     for i, frame_np in enumerate(frames_np):
         current_frame_number = start_frame_idx + i
-        # Deforumの命名規則に合わせる（例: 000000005.png）
-        filename = f"{timestring}_{current_frame_idx:09}.png"
+        
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        # 修正箇所：ファイル名をDeforum標準の連番形式に修正
+        # これにより後続のFFmpegによる動画結合処理が正しく動作します。
+        filename = f"{current_frame_number:09d}.png"
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
         filepath = os.path.join(output_dir, filename)
         
         try:
