@@ -20,8 +20,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-# 国際化対応
-from locales.i18n_extended import translate
 
 def calculate_fp8_maxval(exp_bits=4, mantissa_bits=3, sign_bits=1):
     """
