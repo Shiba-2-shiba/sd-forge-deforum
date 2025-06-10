@@ -2,7 +2,6 @@
 
 import os
 import torch
-import einops
 import numpy as np
 import re
 from PIL import Image
@@ -10,9 +9,8 @@ from PIL import Image
 # Framepack F1のコア機能とヘルパー関数をインポート
 from .k_diffusion_hunyuan import sample_hunyuan
 from .utils import (
-    save_bcthw_as_mp4,
+    # save_bcthw_as_mp4 は不要になるため削除
     crop_or_pad_yield_mask,
-    soft_append_bcthw,
     resize_and_center_crop,
     generate_timestamp,
 )
@@ -20,6 +18,9 @@ from .hunyuan import encode_prompt_conds, vae_encode
 from .clip_vision import hf_clip_vision_encode
 from .bucket_tools import find_nearest_bucket
 from .vae_cache import vae_decode_cache
+
+# ★★★ 修正点1: 新規追加した vae_settings.py から設定適用関数をインポート ★★★
+from .vae_settings import apply_vae_settings
 
 # メモリ管理ユーティリティ
 from .memory import (
@@ -39,14 +40,14 @@ def parse_schedule_string(schedule_str: str) -> float:
         try:
             return float(match.group(1))
         except ValueError:
-            return 0.0  # デフォルト値
+            return 0.0
     return 0.0
 
 @torch.no_grad()
 def execute_generation(managers: dict, device, args, anim_args, video_args, framepack_f1_args, root):
     """
     Deforumから呼び出される動画生成のメイン関数。
-    UI関連のコードを排除し、ロジックのみに特化。
+    Deforum本体と連携するため、個別のフレーム画像を返すように修正。
     """
     print("[tensor_tool] Starting video generation process...")
 
@@ -81,8 +82,9 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
     
-    job_id = generate_timestamp()
-    output_path = os.path.join(args.outdir, f"{job_id}.mp4")
+    # Deforumのタイムスタンプと出力パスを使用
+    timestring = anim_args.timestring
+    output_path = args.outdir
 
     # --- 3. プロンプトエンコード ---
     print("[tensor_tool] Encoding prompts...")
@@ -168,37 +170,52 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     if not high_vram:
         offload_model_from_device_for_memory_preservation(transformer, target_device=device, preserved_memory_gb=8.0)
 
-    # --- 6. VAEデコードと動画保存 ---
-    print("[tensor_tool] Decoding latents and saving video...")
+    # --- 6. VAEデコードとフレーム保存 ---
+    print("[tensor_tool] Decoding latents and saving individual frames...")
     if not high_vram: load_model_as_complete(vae, target_device=device)
+
+    # ★★★ 修正点2: vae_settings.py の設定をVAEに適用 ★★★
+    print("[tensor_tool] Applying VAE settings for quality improvement...")
+    apply_vae_settings(vae)
 
     print("[tensor_tool] Using VAE cache for decoding to prevent OOM.")
     pixels = vae_decode_cache(generated_latents, vae)
 
     if not high_vram: unload_complete_models(vae)
 
-    print(f"[tensor_tool] Shape before interpolation: {pixels.shape}")
-
-    # ★★★ エラー修正箇所 ★★★
-    # 5次元テンソル (B, C, T, H, W) をフレームごとにリサイズする
+    # フレームごとにリサイズ
     frame_list = list(pixels.split(1, dim=2))
     resized_frames = []
     for i, frame in enumerate(frame_list):
-        # 各フレームは (B, C, 1, H, W) -> (B, C, H, W) に変形
         frame_4d = frame.squeeze(2)
-        # 4Dテンソルを補間
         resized_frame = torch.nn.functional.interpolate(frame_4d, size=(height, width), mode='bilinear', align_corners=False)
-        # (B, C, 1, H, W) に戻してリストに追加
-        resized_frames.append(resized_frame.unsqueeze(2))
+        resized_frames.append(resized_frame)
 
-    # リサイズされたフレームを再び5次元テンソルに結合
-    pixels = torch.cat(resized_frames, dim=2)
-    # ★★★ 修正ここまで ★★★
+    # ★★★ 修正点3: MP4保存から個別フレーム保存とPILイメージリストの返却に変更 ★★★
+    pil_images = []
+    # テンソルをCPUに移動し、[0, 255]の範囲に変換
+    # バッチサイズが1と仮定
+    resized_frames_tensor = torch.cat(resized_frames, dim=0).cpu() 
+    # [-1, 1] -> [0, 1]
+    resized_frames_tensor = (resized_frames_tensor + 1.0) / 2.0
+    # [0, 1] -> [0, 255]
+    resized_frames_tensor = resized_frames_tensor.clamp(0, 1) * 255.0
 
-    print(f"[tensor_tool] Shape after interpolation to ({height}, {width}): {pixels.shape}")
+    # (Frames, Channels, Height, Width) -> (Frames, Height, Width, Channels)
+    frames_np = resized_frames_tensor.permute(0, 2, 3, 1).numpy().astype(np.uint8)
 
-    save_bcthw_as_mp4(pixels, output_path, fps=video_args.fps, crf=18)
+    start_frame_idx = anim_args.frame_idx
+    for i, frame_np in enumerate(frames_np):
+        current_frame_idx = start_frame_idx + i
+        image = Image.fromarray(frame_np)
+        pil_images.append(image)
+        
+        # Deforumの命名規則に従ってフレームを保存
+        filename = f"{timestring}_{current_frame_idx:09}.png"
+        image.save(os.path.join(output_path, filename))
     
-    print(f"[tensor_tool] Video generation finished. Output saved to: {output_path}")
+    print(f"[tensor_tool] {len(pil_images)} frames generated and saved to: {output_path}")
+    print("[tensor_tool] Video generation finished. Returning PIL images to Deforum for stitching.")
 
-    return output_path
+    # DeforumにPILイメージのリストを返す
+    return pil_images
