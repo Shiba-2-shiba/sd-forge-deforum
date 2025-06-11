@@ -95,7 +95,12 @@ def sample_hunyuan(
         # initial_latentは(B,C,1,H,W)なので、T次元に沿ってブロードキャストされる
         latents = initial_latent_ready * (1.0 - sigma_per_frame) + latents * sigma_per_frame
 
+    k_model = fm_wrapper(transformer)
 
+
+    if concat_latent is not None:
+        concat_latent = concat_latent.to(latents)
+        
     distilled_guidance = torch.tensor([distilled_guidance_scale * 1000.0] * batch_size).to(device=device, dtype=dtype)
 
     prompt_embeds = repeat_to_batch_size(prompt_embeds, batch_size)
