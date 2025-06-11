@@ -148,7 +148,7 @@ def optimize_state_dict_with_fp8_on_the_fly(
     optimized_count = 0
     
     # それぞれのモデルファイルを処理        
-    from lora_utils.safetensors_utils import MemoryEfficientSafeOpen
+    from .safetensors_utils import MemoryEfficientSafeOpen
 
     state_dict = {}
     for model_file in model_files:
