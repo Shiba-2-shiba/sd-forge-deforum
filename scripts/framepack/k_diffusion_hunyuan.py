@@ -31,7 +31,7 @@ def sample_hunyuan(
         initial_latent=None,
         concat_latent=None,
         strength=1.0,
-        initial_keyframe_strength=0.5,
+        initial_keyframe_strength=0.01,
         width=512,
         height=512,
         frames=16,
