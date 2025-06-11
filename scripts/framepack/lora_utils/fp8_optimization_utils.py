@@ -129,7 +129,7 @@ def optimize_state_dict_with_fp8_on_the_fly(
     elif exp_bits == 5 and mantissa_bits == 2:
         fp8_dtype = torch.float8_e5m2
     else:
-        raise ValueError("サポートされていないFP8形式: E{0}M{1}").format(exp_bits, mantissa_bits))
+        raise ValueError("サポートされていないFP8形式: E{0}M{1}".format(exp_bits, mantissa_bits))
 
     # FP8の最大値を計算
     max_value = calculate_fp8_maxval(exp_bits, mantissa_bits)
