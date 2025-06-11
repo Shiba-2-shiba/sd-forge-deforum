@@ -45,10 +45,10 @@ def load_and_apply_lora(
         device = torch.device("cpu") # CPUに fall back
 
     for lora_path, lora_scale in zip(lora_paths, lora_scales):
-        print(_("LoRAを読み込み中: {0} (スケール: {1})").format(os.path.basename(lora_path), lora_scale))
+        print(("LoRAを読み込み中: {0} (スケール: {1})").format(os.path.basename(lora_path), lora_scale))
 
     # LoRA重みを状態辞書にマージ
-    print(_("フォーマット: HunyuanVideo"))
+    print("フォーマット: HunyuanVideo")
 
     # LoRAをマージ
     merged_state_dict = merge_lora_to_state_dict(model_files, lora_paths, lora_scales, fp8_enabled, device)
@@ -56,7 +56,7 @@ def load_and_apply_lora(
     # # LoRAが適用されたことを示すフラグを設定
     # model._lora_applied = True
 
-    print(_("LoRAの適用が完了しました"))
+    print("LoRAの適用が完了しました")
     return merged_state_dict
 
 def check_lora_applied(model):
