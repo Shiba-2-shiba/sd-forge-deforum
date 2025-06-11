@@ -9,7 +9,9 @@ FramePackモードの使用にはForgeの「requirements_versions.txt」を編�
 ①　peft==0.14.0
 ②　huggingface-hub==0.32.4
 
-FramePackの実装に、https://github.com/git-ai-code/FramePack-eichi/tree/main、https://github.com/lllyasviel/FramePackのコードを参考にさせて戴いました。
+FramePackの実装に以下のリポジトリのコードを参考にさせて戴いました。
+①　https://github.com/git-ai-code/FramePack-eichi/tree/main
+②　https://github.com/lllyasviel/FramePack
 
 
 
