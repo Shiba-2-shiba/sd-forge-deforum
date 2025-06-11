@@ -202,7 +202,7 @@ def optimize_state_dict_with_fp8_on_the_fly(
                 if calc_device is not None  and optimized_count % 10 == 0:
                     torch.cuda.empty_cache()
 
-    print("最適化された線形レイヤー数: {0}").format(optimized_count))
+    print("最適化された線形レイヤー数: {0}".format(optimized_count))
     return state_dict
 
 def fp8_linear_forward_patch(self: nn.Linear, x, use_scaled_mm=False, max_value=None):
@@ -230,7 +230,7 @@ def fp8_linear_forward_patch(self: nn.Linear, x, use_scaled_mm=False, max_value=
         global FP8_E4M3_WARNING_SHOWN
         if weight_dtype != torch.float8_e4m3fn:
             if not FP8_E4M3_WARNING_SHOWN:
-                print("警告: scaled_mmはFP8 E4M3FN形式を必要としますが、{weight_dtype}が検出されました。通常方式にフォールバックします。").format(weight_dtype=weight_dtype)
+                print("警告: scaled_mmはFP8 E4M3FN形式を必要としますが、{weight_dtype}が検出されました。通常方式にフォールバックします。".format(weight_dtype=weight_dtype))
                 FP8_E4M3_WARNING_SHOWN = True
             # 通常の方式にフォールバック
             return fp8_linear_forward_patch(self, x, False, max_value)
@@ -240,7 +240,7 @@ def fp8_linear_forward_patch(self: nn.Linear, x, use_scaled_mm=False, max_value=
         global FP8_DIMENSIONS_WARNING_SHOWN
         if x.ndim != 3:
             if not FP8_DIMENSIONS_WARNING_SHOWN:
-                print("警告: scaled_mmは3次元入力が必要ですが、{0}次元が検出されました。通常方式にフォールバックします。").format(x.ndim)
+                print("警告: scaled_mmは3次元入力が必要ですが、{0}次元が検出されました。通常方式にフォールバックします。".format(x.ndim))
                 FP8_DIMENSIONS_WARNING_SHOWN = True
             # 通常の方式にフォールバック
             return fp8_linear_forward_patch(self, x, False, max_value)
@@ -331,7 +331,7 @@ def apply_fp8_monkey_patch(model, optimized_state_dict, use_scaled_mm=False):
 
             patched_count += 1
 
-    print("モンキーパッチ適用済みの線形レイヤー数: {0}").format(patched_count)
+    print("モンキーパッチ適用済みの線形レイヤー数: {0}".format(patched_count))
     # モデルにFP8適用済みフラグを設定
     model._fp8_optimized = True
     return model
