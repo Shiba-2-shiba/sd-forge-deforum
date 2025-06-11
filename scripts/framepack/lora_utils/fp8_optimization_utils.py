@@ -34,7 +34,7 @@ def calculate_fp8_maxval(exp_bits=4, mantissa_bits=3, sign_bits=1):
     Returns:
         float: FP8形式で表現可能な最大値
     """
-    assert exp_bits + mantissa_bits + sign_bits == 8, translate("合計ビット数は8でなければなりません")
+    assert exp_bits + mantissa_bits + sign_bits == 8, ("合計ビット数は8でなければなりません")
 
     # 指数バイアスを計算
     bias = 2 ** (exp_bits - 1) - 1
