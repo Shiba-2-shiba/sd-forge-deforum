@@ -1,8 +1,17 @@
-# integration.py (最終修正・エラー解決版)
+# integration.py (LoRA/FP8対応 最終版)
 
 import os
 import torch
 import gc
+import sys
+import traceback
+
+# eichiから採用する機能と、新しいManagerに対応するための機能をインポート
+try:
+    import winsound
+    HAS_WINSOUND = True
+except ImportError:
+    HAS_WINSOUND = False
 
 from . import tensor_tool
 from .memory import (
@@ -14,6 +23,8 @@ from .transformer_manager import TransformerManager
 from .text_encoder_manager import TextEncoderManager
 from .vae_manager import VaeManager
 from .discovery import FramepackDiscovery
+# FP8警告フラグのリセット関数をインポート
+from .lora_utils.fp8_optimization_utils import reset_warning_flags
 
 
 class ImageEncoderManager:
@@ -107,6 +118,7 @@ class FramepackIntegration:
         self.managers = None
         self.sdxl_components = None
         self.discovery = FramepackDiscovery()
+        self.last_used_f1_args = {} # 完了時アラームのために引数を保持
 
     def _initialize_managers(self, local_paths: dict[str, str]):
         global_managers = {}
@@ -115,11 +127,11 @@ class FramepackIntegration:
 
         print("Initializing managers with explicit model paths...")
         
+        # ★★★ 修正箇所: 新しいTransformerManagerの呼び出し ★★★
         global_managers["transformer"] = TransformerManager(
             device=self.device, 
             high_vram_mode=high_vram, 
-            use_f1_model=True,
-            model_path=local_paths.get("transformer")
+            model_path=local_paths.get("transformer") # F1モデルのパスを渡す
         )
         global_managers["text_encoder"] = TextEncoderManager(
             device=self.device, 
@@ -204,12 +216,42 @@ class FramepackIntegration:
 
     def generate_video(self, args, anim_args, video_args, framepack_f1_args, root):
         """
-        動画生成処理を外部モジュール `tensor_tool.py` に委譲する。
+        動画生成処理を外部モジュール `tensor_tool.py` に委譲します。
+        LoRA/FP8の設定をTransformerManagerに渡し、モデルの状態を更新します。
         """
-        print("[FramePack Integration] Delegating video generation to tensor_tool module...")
+        print("[FramePack Integration] Starting video generation process...")
+        self.last_used_f1_args = framepack_f1_args # 完了時アラームのために引数を保存
 
         try:
-            # tensor_toolから画像のファイルパスリストが返される
+            # ★★★ 1. FP8警告フラグのリセット (eichi採用機能) ★★★
+            reset_warning_flags()
+            print("Reset FP8 warning flags for new generation.")
+
+            # ★★★ 2. LoRA/FP8設定をTransformerManagerに適用 ★★★
+            transformer_manager = self.managers["transformer"]
+            high_vram_mode = transformer_manager.current_state['high_vram']
+
+            # UIからの引数を安全に取得
+            lora_paths = getattr(framepack_f1_args, 'lora_paths', [])
+            lora_scales = getattr(framepack_f1_args, 'lora_scales', [])
+            fp8_enabled = getattr(framepack_f1_args, 'fp8_enabled', True) # デフォルトで有効化
+
+            # 新しい設定をTransformerManagerにセット
+            transformer_manager.set_next_settings(
+                lora_paths=lora_paths,
+                lora_scales=lora_scales,
+                fp8_enabled=fp8_enabled,
+                high_vram_mode=high_vram_mode
+            )
+            
+            # 設定変更に基づき、モデルをリロード（必要に応じて）
+            transformer_manager.ensure_transformer_state()
+            
+            # 他のマネージャーの状態も確認
+            self.managers["text_encoder"].ensure_text_encoder_state()
+
+            # ★★★ 3. コア生成ロジックの実行 ★★★
+            print("[FramePack Integration] Delegating to tensor_tool module...")
             returned_images = tensor_tool.execute_generation(
                 managers=self.managers,
                 device=self.device,
@@ -225,35 +267,49 @@ class FramepackIntegration:
             else:
                 print("[FramePack Integration] Generation finished, but no images were returned from tensor_tool.")
 
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-            # 修正箇所: GradioのUIに表示するため、Noneではなくファイルパスのリストを返す
-            # これによりUIのクラッシュが解決されます。
             return returned_images
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
         except Exception as e:
-            print(f"[FramePack Integration] An error occurred during video generation delegated to tensor_tool.")
+            print(f"[FramePack Integration] An error occurred during video generation.")
+            traceback.print_exc()
             raise e
 
     def cleanup_environment(self):
+        """環境をクリーンアップし、eichi採用の完了時アラーム機能を実行します。"""
         if self.managers is None:
             print("Cleanup skipped: managers were not initialized.")
             return
 
         print("Cleaning up FramePack F1 environment...")
         
-        for manager_name, manager in self.managers.items():
-            if manager and hasattr(manager, 'dispose'):
-                print(f"Disposing manager: {manager_name}...")
-                manager.dispose()
-        
-        self.managers = None
-        gc.collect(); torch.cuda.empty_cache()
+        try:
+            for manager_name, manager in self.managers.items():
+                if manager and hasattr(manager, 'dispose'):
+                    print(f"Disposing manager: {manager_name}...")
+                    manager.dispose()
+            
+            self.managers = None
+            gc.collect(); torch.cuda.empty_cache()
 
-        print("Restoring base SD model to VRAM...")
-        if self.sdxl_components:
-            if self.sdxl_components["unet"]: move_model_to_device_with_memory_preservation(self.sdxl_components["unet"], self.device)
-            if self.sdxl_components["vae"]: move_model_to_device_with_memory_preservation(self.sdxl_components["vae"], self.device)
-            if self.sdxl_components["text_encoders"]: move_model_to_device_with_memory_preservation(self.sdxl_components["text_encoders"], self.device)
-        
-        print("Cleanup complete.")
+            print("Restoring base SD model to VRAM...")
+            if self.sdxl_components:
+                if self.sdxl_components["unet"]: move_model_to_device_for_memory_preservation(self.sdxl_components["unet"], self.device)
+                if self.sdxl_components["vae"]: move_model_to_device_for_memory_preservation(self.sdxl_components["vae"], self.device)
+                if self.sdxl_components["text_encoders"]: move_model_to_device_for_memory_preservation(self.sdxl_components["text_encoders"], self.device)
+            
+            print("Cleanup complete.")
+
+        finally:
+            # ★★★ 完了時アラーム機能 (eichi採用機能) ★★★
+            play_alarm = getattr(self.last_used_f1_args, 'alarm_on_completion', False)
+            if play_alarm:
+                print("Playing completion sound...")
+                # Windowsでのみサウンドを再生
+                if HAS_WINSOUND and sys.platform == 'win32':
+                    try:
+                        winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS)
+                    except Exception as alarm_error:
+                        print(f"Failed to play completion sound: {alarm_error}")
+                else:
+                    # 他のOS向けの代替通知（コンソール出力）
+                    print("\n\a======================\n    PROCESSING COMPLETE\n======================\a\n")
