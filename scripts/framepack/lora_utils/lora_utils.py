@@ -18,7 +18,7 @@ def merge_lora_to_state_dict(
         # Check the format of the LoRA file
         keys = list(lora_sd.keys())
         if keys[0].startswith("lora_unet_"):
-            print(_("Musubi Tuner LoRA detected"))
+            print("Musubi Tuner LoRA detected")
         else:
             transformer_prefixes = ["diffusion_model", "transformer"]  # to ignore Text Encoder modules
             lora_suffix = None
@@ -34,11 +34,11 @@ def merge_lora_to_state_dict(
                     break
 
             if lora_suffix == "lora_A" and prefix is not None:
-                print(_("Diffusion-pipe (?) LoRA detected"))
+                print("Diffusion-pipe (?) LoRA detected")
                 lora_sd = convert_from_diffusion_pipe_or_something(lora_sd, "lora_unet_")
 
             else:
-                print(_("LoRA file format not recognized: {0}").format(os.path.basename(lora_file)))
+                print(("LoRA file format not recognized: {0}").format(os.path.basename(lora_file)))
                 lora_sd = None
 
         if lora_sd is not None:
@@ -49,7 +49,7 @@ def merge_lora_to_state_dict(
                     is_hunyuan = True
                     break
             if is_hunyuan:
-                print(_("HunyuanVideo LoRA detected, converting to FramePack format"))
+                print("HunyuanVideo LoRA detected, converting to FramePack format")
                 lora_sd = convert_hunyuan_to_framepack(lora_sd)
 
         if lora_sd is not None:
@@ -77,7 +77,7 @@ def convert_from_diffusion_pipe_or_something(lora_sd: dict[str, torch.Tensor], p
     for key, weight in lora_sd.items():
         diffusers_prefix, key_body = key.split(".", 1)
         if diffusers_prefix != "diffusion_model" and diffusers_prefix != "transformer":
-            print(_("unexpected key: {0} in diffusers format").format(key))
+            print(("unexpected key: {0} in diffusers format").format(key))
             continue
 
         new_key = f"{prefix}{key_body}".replace(".", "_").replace("_lora_A_", ".lora_down.").replace("_lora_B_", ".lora_up.")
@@ -110,7 +110,7 @@ def load_safetensors_with_lora_and_fp8(
         list_of_lora_weight_keys.append(lora_weight_keys)
 
     # Merge LoRA weights into the state dict
-    print(_("Merging LoRA weights into state dict. multiplier: {0}").format(multipliers))
+    print(("Merging LoRA weights into state dict. multiplier: {0}").format(multipliers))
 
     # make hook for LoRA merging
     def weight_hook(model_weight_key, model_weight):
@@ -183,7 +183,7 @@ def load_safetensors_with_lora_and_fp8(
         if len(lora_weight_keys) > 0:
             # if there are still LoRA keys left, it means they are not used in the model
             # this is a warning, not an error
-            print(_("Warning: not all LoRA keys are used: {0}").format(", ".join(lora_weight_keys)))
+            print(("Warning: not all LoRA keys are used: {0}").format(", ".join(lora_weight_keys)))
 
     return state_dict
 
@@ -212,7 +212,7 @@ def convert_hunyuan_to_framepack(lora_sd: dict[str, torch.Tensor]) -> dict[str, 
             key = key.replace("linear2", "proj_out")
             key = key.replace("modulation_linear", "norm_linear")
         else:
-            print(_("Unsupported module name: {0}, only double_blocks and single_blocks are supported").format(key))
+            print(("Unsupported module name: {0}, only double_blocks and single_blocks are supported").format(key))
             continue
 
         if "QKVM" in key:
@@ -236,7 +236,7 @@ def convert_hunyuan_to_framepack(lora_sd: dict[str, torch.Tensor]) -> dict[str, 
                 new_lora_sd[key_v] = weight[3072 * 2 : 3072 * 3]
                 new_lora_sd[key_m] = weight[3072 * 3 :]  # 21504 - 3072 * 3 = 12288
             else:
-                print(_("Unsupported module name: {0}").format(key))
+                print(("Unsupported module name: {0}").format(key))
                 continue
         elif "QKV" in key:
             # split QKV into Q, K, V
@@ -256,7 +256,7 @@ def convert_hunyuan_to_framepack(lora_sd: dict[str, torch.Tensor]) -> dict[str, 
                 new_lora_sd[key_k] = weight[3072 : 3072 * 2]
                 new_lora_sd[key_v] = weight[3072 * 2 :]
             else:
-                print(_("Unsupported module name: {0}").format(key))
+                print(("Unsupported module name: {0}").format(key))
                 continue
         else:
             # no split needed
@@ -279,7 +279,7 @@ def load_safetensors_with_fp8_optimization(
         EXCLUDE_KEYS = ["norm"]  # Exclude norm layers (e.g., LayerNorm, RMSNorm) from FP8
 
         # 状態辞書をFP8形式に最適化
-        print(_("FP8形式で状態辞書を最適化しています..."))
+        print("FP8形式で状態辞書を最適化しています...")
         state_dict = optimize_state_dict_with_fp8_on_the_fly(
             model_files, device, TARGET_KEYS, EXCLUDE_KEYS, move_to_device=False, weight_hook=weight_hook
         )
