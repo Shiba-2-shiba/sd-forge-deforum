@@ -3,8 +3,6 @@ import torch
 from safetensors.torch import load_file
 from tqdm import tqdm
 
-# 国際化対応
-from locales.i18n_extended import translate as _
 
 def merge_lora_to_state_dict(
     model_files:list[str], lora_files: list[str], multipliers: list[float], fp8_enabled: bool, device: torch.device
