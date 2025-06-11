@@ -272,7 +272,7 @@ def load_safetensors_with_fp8_optimization(
     Load state dict from safetensors files and merge LoRA weights into the state dict with fp8 optimization if needed.
     """
     if fp8_optimization:
-        from lora_utils.fp8_optimization_utils import optimize_state_dict_with_fp8_on_the_fly
+        from .fp8_optimization_utils import optimize_state_dict_with_fp8_on_the_fly
 
         # 最適化のターゲットと除外キーを設定
         TARGET_KEYS = ["transformer_blocks", "single_transformer_blocks"]
