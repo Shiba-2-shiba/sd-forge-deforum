@@ -13,6 +13,8 @@ FramePackの実装に以下のリポジトリのコードを参考にさせて�
 ①　https://github.com/git-ai-code/FramePack-eichi/tree/main
 ②　https://github.com/lllyasviel/FramePack
 
+Teacache、fp8利用はデフォルトで適用しています。
+
 
 
 # Zirteq Fluxabled Fork
