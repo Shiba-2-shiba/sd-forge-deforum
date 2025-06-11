@@ -1,4 +1,4 @@
-# tensor_tool.py (修正版)
+# tensor_tool.py (最終修正・安定版)
 
 import os
 import torch
@@ -73,8 +73,12 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     steps = args.steps
     width, height = args.W, args.H
 
+    # ★★★ 修正箇所 ★★★
     # Strength scheduleからstrength値を取得。これが初期画像のノイズ強度を決定します。
     strength = parse_schedule_string(anim_args.strength_schedule)
+    # Deforumでは通常、cfg_scale_scheduleからCFG値を取得します。
+    # 元のコードではstrength_scheduleが使われていましたが、これは誤りである可能性が高いです。
+    # getattrで安全に取得し、見つからない場合は一般的なデフォルト値7.0を使用します。
     cfg = parse_schedule_string(getattr(anim_args, 'cfg_scale_schedule', "0: (7.0)"))
     gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
@@ -138,23 +142,22 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     rnd = torch.Generator(device=device).manual_seed(seed)
     
+    # ★★★ 修正箇所 ★★★
+    # サンプラーが内部で (frames + 3) // 4 の計算を行うため、
+    # 期待するLatentフレーム数(latent_window_size)から逆算した最終フレーム数を渡す。
     frames_to_generate = latent_window_size * 4 - 3
     print(f"[tensor_tool] Requesting sampler to generate latents for {frames_to_generate} final frames (expecting {latent_window_size} keyframes).")
 
-    initial_keyframe_strength = getattr(framepack_f1_args, 'initial_keyframe_strength', 0.5)
+    clean_latents = initial_latent
+    clean_latent_indices = torch.tensor([[0]], device=device)
 
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★               修正箇所                 ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # サンプラーに渡す引数辞書(sampler_kwargs)に `initial_latent` を明示的に追加します。
     sampler_kwargs = dict(
         transformer=transformer,
         sampler="unipc",
-        strength=strength,
-        initial_keyframe_strength=initial_keyframe_strength,
+        strength=strength,  # ★★★ 修正箇所 ★★★: 初期ノイズ強度を渡す
         width=bucket_w,
         height=bucket_h,
-        frames=frames_to_generate,
+        frames=frames_to_generate, # ★★★ 修正箇所 ★★★: latent_window_size から変更
         real_guidance_scale=cfg,
         distilled_guidance_scale=gs,
         guidance_rescale=rs,
@@ -167,13 +170,9 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         negative_prompt_embeds_mask=n_prompt_embeds_mask,
         negative_prompt_poolers=n_prompt_poolers.to(transformer.dtype),
         image_embeddings=image_embeddings.to(transformer.dtype),
-        
-        # initial_latentを渡すことで、サンプラーが正しく初期画像を基準にするように修正
-        initial_latent=initial_latent,
-        
         latent_indices=None,
-        clean_latents=initial_latent, # clean_latentsは別の目的で使われる可能性があるため残す
-        clean_latent_indices=torch.tensor([[0]], device=device), # clean_latentsに対応するインデックス
+        clean_latents=clean_latents,
+        clean_latent_indices=clean_latent_indices,
         device=device,
         dtype=torch.bfloat16,
     )
@@ -186,6 +185,9 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
     # --- 6. Latent補間、VAEデコード、ファイル保存 ---
     
+    # ★★★ 修正箇所 ★★★
+    # サンプラーが期待通りのキーフレーム数(9)を返すようになったため、
+    # それを最終フレーム数(33)に補間するこの処理は、当初の設計通り必須となります。
     print(f"[tensor_tool] Interpolating {generated_latents.shape[2]} latent frames to {frames_to_generate} frames...")
     if generated_latents.shape[2] != frames_to_generate:
         original_dtype = generated_latents.dtype
@@ -224,6 +226,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     start_frame_idx = anim_args.extract_from_frame if hasattr(anim_args, 'extract_from_frame') else 0
 
     saved_count = 0
+    # ★★★ 修正箇所 ★★★: Gradioに返すためファイルパスのリストを初期化
     saved_filepaths = []
     for i, frame_np in enumerate(frames_np):
         current_frame_number = start_frame_idx + i
@@ -234,16 +237,19 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             image = Image.fromarray(frame_np)
             image.save(filepath)
             saved_count += 1
-            saved_filepaths.append(filepath)
+            saved_filepaths.append(filepath) # ★★★ 修正箇所 ★★★: 保存したパスをリストに追加
         except Exception as e:
             print(f"[ERROR] Failed to save frame {filename}: {e}")
 
     print(f"[tensor_tool] Process complete. Saved {saved_count} frames to {output_dir}")
 
-    # UIに最後のフレーム画像を表示する
+    # ★★★ 新しい修正案 ★★★
+    # ユーザーの要望に応え、UIに最後のフレーム画像を表示する。
+    # エラーを回避するため、ファイルパスではなくPIL.Imageオブジェクトを返す。
+    # また、Deforum UIが期待する形式（画像のリスト）に合わせる。
     last_frame_image = None
     if 'image' in locals() and isinstance(image, Image.Image):
-        last_frame_image = image
+        last_frame_image = image  # forループの最後に保存されたPILイメージ
         print(f"[tensor_tool] Returning the last generated frame as a PIL Image to be displayed in the UI.")
         # Deforum UIは通常、画像の「リスト」を期待するため、リストに格納して返す
         return [last_frame_image]
