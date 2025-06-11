@@ -5,9 +5,12 @@ This is an experimental fork version designed to run the Wan2.1 model in my own 
   `https://github.com/Wan-Video/Wan2.1`  
 ---
 
-Forgeの「requirements_versions.txt」を編集する必要があります。
+FramePackモードの使用にはForgeの「requirements_versions.txt」を編集する必要があります。
 ①　peft==0.14.0
 ②　huggingface-hub==0.32.4
+
+FramePackの実装に、https://github.com/git-ai-code/FramePack-eichi/tree/main、https://github.com/lllyasviel/FramePackのコードを参考にさせて戴いました。
+
 
 
 # Zirteq Fluxabled Fork
