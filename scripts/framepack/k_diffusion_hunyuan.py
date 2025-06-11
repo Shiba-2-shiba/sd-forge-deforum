@@ -31,12 +31,11 @@ def sample_hunyuan(
         initial_latent=None,
         concat_latent=None,
         strength=1.0,
-        initial_keyframe_strength=0.01,
         width=512,
         height=512,
         frames=16,
         real_guidance_scale=1.0,
-        distilled_guidance_scale=10.0,
+        distilled_guidance_scale=6.0,
         guidance_rescale=0.0,
         shift=None,
         num_inference_steps=25,
@@ -69,38 +68,19 @@ def sample_hunyuan(
     else:
         mu = math.log(shift)
 
-    main_sigmas = get_flux_sigmas_from_mu(num_inference_steps, mu).to(device)
-    main_sigmas = main_sigmas * strength
-    # サンプラーには、この一貫したスケジュールを渡す
-    sigmas = main_sigmas
-    # 初期latentがある場合のノイズ付加処理
-    if initial_latent is not None:
-        # 最初のキーフレーム専用のノイズスケジュールを別途計算
-        initial_sigmas = get_flux_sigmas_from_mu(num_inference_steps, mu).to(device)
-        initial_sigmas = initial_sigmas * initial_keyframe_strength
-
-        # ノイズ付加に使うシグマ値（ノイズの強さ）を取得
-        first_sigma_for_initial = initial_sigmas[0].to(device=device, dtype=torch.float32)
-        first_sigma_for_others = main_sigmas[0].to(device=device, dtype=torch.float32)
-
-        # フレーム（T次元）ごとに異なるシグマ値を持つテンソルを作成
-        sigma_per_frame = torch.full((1, 1, T, 1, 1), first_sigma_for_others, device=latents.device, dtype=torch.float32)
-        # 最初のキーフレーム(T=0)だけ、弱いノイズ用のシグマで上書き
-        sigma_per_frame[:, :, 0, :, :] = first_sigma_for_initial
-
-        # initial_latentを適切なデバイスと型に変換
-        initial_latent_ready = initial_latent.to(device=latents.device, dtype=torch.float32)
-            
-        # フレームごとに異なる強度でノイズを付加
-        # initial_latentは(B,C,1,H,W)なので、T次元に沿ってブロードキャストされる
-        latents = initial_latent_ready * (1.0 - sigma_per_frame) + latents * sigma_per_frame
+    sigmas = get_flux_sigmas_from_mu(num_inference_steps, mu).to(device)
 
     k_model = fm_wrapper(transformer)
 
+    if initial_latent is not None:
+        sigmas = sigmas * strength
+        first_sigma = sigmas[0].to(device=device, dtype=torch.float32)
+        initial_latent = initial_latent.to(device=device, dtype=torch.float32)
+        latents = initial_latent.float() * (1.0 - first_sigma) + latents.float() * first_sigma
 
     if concat_latent is not None:
         concat_latent = concat_latent.to(latents)
-        
+
     distilled_guidance = torch.tensor([distilled_guidance_scale * 1000.0] * batch_size).to(device=device, dtype=dtype)
 
     prompt_embeds = repeat_to_batch_size(prompt_embeds, batch_size)
