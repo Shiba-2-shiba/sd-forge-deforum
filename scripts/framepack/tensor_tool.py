@@ -141,6 +141,8 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     frames_to_generate = latent_window_size * 4 - 3
     print(f"[tensor_tool] Requesting sampler to generate latents for {frames_to_generate} final frames (expecting {latent_window_size} keyframes).")
 
+    initial_keyframe_strength = getattr(framepack_f1_args, 'initial_keyframe_strength', 0.5)
+
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     # ★★★               修正箇所                 ★★★
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
@@ -149,6 +151,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         transformer=transformer,
         sampler="unipc",
         strength=strength,
+        initial_keyframe_strength=initial_keyframe_strength,
         width=bucket_w,
         height=bucket_h,
         frames=frames_to_generate,
