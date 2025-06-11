@@ -95,16 +95,6 @@ def sample_hunyuan(
         # initial_latentは(B,C,1,H,W)なので、T次元に沿ってブロードキャストされる
         latents = initial_latent_ready * (1.0 - sigma_per_frame) + latents * sigma_per_frame
 
-    k_model = fm_wrapper(transformer)
-
-    if initial_latent is not None:
-        sigmas = sigmas * strength
-        first_sigma = sigmas[0].to(device=device, dtype=torch.float32)
-        initial_latent = initial_latent.to(device=device, dtype=torch.float32)
-        latents = initial_latent.float() * (1.0 - first_sigma) + latents.float() * first_sigma
-
-    if concat_latent is not None:
-        concat_latent = concat_latent.to(latents)
 
     distilled_guidance = torch.tensor([distilled_guidance_scale * 1000.0] * batch_size).to(device=device, dtype=dtype)
 
