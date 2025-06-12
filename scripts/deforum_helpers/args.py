@@ -1467,7 +1467,7 @@ def DeforumOutputArgs():
 
 def FramePackF1Args():
     """Arguments specific to FramePack F1 mode"""
-    lora_dir = "/stable-diffusion-webui-forge/models/Lora"
+    lora_dir = sh.cmd_opts.lora_dir # 動的なパスを使用
     try:
         lora_choices = [f for f in os.listdir(lora_dir) if f.endswith((".safetensors", ".pt"))]
     except Exception:
@@ -1583,7 +1583,7 @@ def process_args(args_dict_main, run_id):
     # Build LoRA path and scale lists from individual slots
     lora_paths = []
     lora_scales = []
-    lora_base = "/stable-diffusion-webui-forge/models/Lora"
+    lora_base = sh.cmd_opts.lora_dir # 動的なパスを使用
     for i in range(1, 4):
         path = getattr(framepack_f1_args, f"lora_path_{i}", "None")
         if path and path != "None":
