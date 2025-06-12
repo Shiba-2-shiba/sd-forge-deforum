@@ -1464,8 +1464,15 @@ def DeforumOutputArgs():
     }
 
 
+
 def FramePackF1Args():
     """Arguments specific to FramePack F1 mode"""
+    lora_dir = "/stable-diffusion-webui-forge/models/Lora"
+    try:
+        lora_choices = [f for f in os.listdir(lora_dir) if f.endswith((".safetensors", ".pt"))]
+    except Exception:
+        lora_choices = []
+
     return {
         "f1_image_strength": {
             "label": "Image Strength (F1 Mode)",
@@ -1474,7 +1481,7 @@ def FramePackF1Args():
             "maximum": 1.02,
             "step": 0.001,
             "value": 1.0,
-            "info": "Influence of the initial image. Higher values stick closer to the start image. (1.0 = 100%)"
+            "info": "Influence of the initial image. Higher values stick closer to the start image. (1.0 = 100%)",
         },
         "f1_generation_latent_size": {
             "label": "Generation Latent Size (F1 Mode)",
@@ -1483,7 +1490,7 @@ def FramePackF1Args():
             "maximum": 12,
             "step": 1,
             "value": 9,
-            "info": "Frames to generate to connect to the initial image. (Recommended: 6-9)"
+            "info": "Frames to generate to connect to the initial image. (Recommended: 6-9)",
         },
         "f1_trim_start_latent_size": {
             "label": "Trim Start Frames (F1 Mode)",
@@ -1492,10 +1499,51 @@ def FramePackF1Args():
             "maximum": 5,
             "step": 1,
             "value": 0,
-            "info": "Frames to trim from the beginning of the video (if noise is present)."
-        }
+            "info": "Frames to trim from the beginning of the video (if noise is present).",
+        },
+        "lora_path_1": {
+            "label": "LoRA Slot 1",
+            "type": "dropdown",
+            "choices": ["None"] + lora_choices,
+            "value": "None",
+            "info": "Select first LoRA file or leave as None",
+        },
+        "lora_weight_1": {
+            "label": "Weight 1",
+            "type": "number",
+            "precision": 2,
+            "value": 1.0,
+            "info": "Weight for first LoRA",
+        },
+        "lora_path_2": {
+            "label": "LoRA Slot 2",
+            "type": "dropdown",
+            "choices": ["None"] + lora_choices,
+            "value": "None",
+            "info": "Select second LoRA file or leave as None",
+        },
+        "lora_weight_2": {
+            "label": "Weight 2",
+            "type": "number",
+            "precision": 2,
+            "value": 1.0,
+            "info": "Weight for second LoRA",
+        },
+        "lora_path_3": {
+            "label": "LoRA Slot 3",
+            "type": "dropdown",
+            "choices": ["None"] + lora_choices,
+            "value": "None",
+            "info": "Select third LoRA file or leave as None",
+        },
+        "lora_weight_3": {
+            "label": "Weight 3",
+            "type": "number",
+            "precision": 2,
+            "value": 1.0,
+            "info": "Weight for third LoRA",
+        },
     }
-
 
 def get_component_names():
     # Re-enable Wan components (UI level, imports still isolated)
@@ -1531,6 +1579,24 @@ def process_args(args_dict_main, run_id):
     wan_args = SimpleNamespace(**{name: args_dict_main[name] for name in WanArgs()})
     framepack_f1_args = SimpleNamespace(**{name: args_dict_main[name] for name in FramePackF1Args()})
     controlnet_args = SimpleNamespace(**{name: args_dict_main[name] for name in controlnet_component_names()})
+
+    # Build LoRA path and scale lists from individual slots
+    lora_paths = []
+    lora_scales = []
+    lora_base = "/stable-diffusion-webui-forge/models/Lora"
+    for i in range(1, 4):
+        path = getattr(framepack_f1_args, f"lora_path_{i}", "None")
+        if path and path != "None":
+            full_path = path if os.path.isabs(path) else os.path.join(lora_base, path)
+            lora_paths.append(full_path)
+            scale = getattr(framepack_f1_args, f"lora_weight_{i}", 1.0)
+            try:
+                lora_scales.append(float(scale))
+            except Exception:
+                lora_scales.append(1.0)
+
+    framepack_f1_args.lora_paths = lora_paths
+    framepack_f1_args.lora_scales = lora_scales
 
     root.animation_prompts = json.loads(args_dict_main['animation_prompts'])
 
