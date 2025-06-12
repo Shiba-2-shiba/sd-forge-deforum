@@ -181,7 +181,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             resized_frame = torch.nn.functional.interpolate(frame_4d, size=(height, width), mode='bilinear', align_corners=False)
             
             frame_np = (resized_frame.squeeze(0).cpu() + 1.0) / 2.0
-            frame_np = (frame_np.clamp(0, 1) * 255.0).permute(1, 2, 0).numpy().astype(np.uint8)
+            frame_np = (frame_np.clamp(0, 1) * 255.0).permute(1, 2, 0).to(torch.float32).numpy().astype(np.uint8)
 
             # Deforum本体が後続処理で検知できるよう、連番のPNG画像として直接保存する 
             filename = f"{root.timestring}_{frame_idx:09d}.png"
