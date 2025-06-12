@@ -326,9 +326,9 @@ def get_tab_keyframes(d, da, dloopArgs, df1):
             f1_image_strength = create_row(df1.f1_image_strength)
             f1_generation_latent_size = create_row(df1.f1_generation_latent_size)
             f1_trim_start_latent_size = create_row(df1.f1_trim_start_latent_size)
-            lora_row_1 = create_row(df1.lora_path_1, df1.lora_weight_1)
-            lora_row_2 = create_row(df1.lora_path_2, df1.lora_weight_2)
-            lora_row_3 = create_row(df1.lora_path_3, df1.lora_weight_3)
+            lora_row_1 = create_row(df1, 'lora_path_1', 'lora_weight_1')
+            lora_row_2 = create_row(df1, 'lora_path_2', 'lora_weight_2')
+            lora_row_3 = create_row(df1, 'lora_path_3', 'lora_weight_3')
 
     return {k: v for k, v in {**locals(), **vars()}.items()}
 
