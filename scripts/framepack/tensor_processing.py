@@ -1,6 +1,6 @@
 import torch
 import os
-from .gradio.progress_bar import make_progress_bar_html
+from .progress_bar import make_progress_bar_html
 from PIL import Image
 import numpy as np
 from .hunyuan import vae_decode
