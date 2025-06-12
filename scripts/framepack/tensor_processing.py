@@ -1,12 +1,11 @@
 import torch
 import os
-from locales.i18n import translate
-from diffusers_helper.gradio.progress_bar import make_progress_bar_html
+from .gradio.progress_bar import make_progress_bar_html
 from PIL import Image
 import numpy as np
-from diffusers_helper.hunyuan import vae_decode
-from eichi_utils.vae_cache import vae_decode_cache
-from diffusers_helper.utils import save_bcthw_as_mp4
+from .hunyuan import vae_decode
+from .vae_cache import vae_decode_cache
+from .utils import save_bcthw_as_mp4
 
 
 def print_tensor_info(tensor: torch.Tensor, name: str = "テンソル") -> None:
@@ -20,12 +19,12 @@ def print_tensor_info(tensor: torch.Tensor, name: str = "テンソル") -> None:
         None: 標準出力に情報を表示
     """
     try:
-        print(translate("[DEBUG] {0}の詳細分析:").format(name))
-        print(translate("  - 形状: {0}").format(tensor.shape))
-        print(translate("  - 型: {0}").format(tensor.dtype))
-        print(translate("  - デバイス: {0}").format(tensor.device))
+        print(("[DEBUG] {0}の詳細分析:").format(name))
+        print(("  - 形状: {0}").format(tensor.shape))
+        print(("  - 型: {0}").format(tensor.dtype))
+        print(("  - デバイス: {0}").format(tensor.device))
         print(
-            translate("  - 値範囲: 最小={0:.4f}, 最大={1:.4f}, 平均={2:.4f}").format(
+            ("  - 値範囲: 最小={0:.4f}, 最大={1:.4f}, 平均={2:.4f}").format(
                 tensor.min().item(),
                 tensor.max().item(),
                 tensor.mean().item(),
@@ -33,13 +32,13 @@ def print_tensor_info(tensor: torch.Tensor, name: str = "テンソル") -> None:
         )
         if torch.cuda.is_available():
             print(
-                translate("  - 使用GPUメモリ: {0:.2f}GB/{1:.2f}GB").format(
+                ("  - 使用GPUメモリ: {0:.2f}GB/{1:.2f}GB").format(
                     torch.cuda.memory_allocated() / 1024**3,
                     torch.cuda.get_device_properties(0).total_memory / 1024**3,
                 )
             )
     except Exception as e:
-        print(translate("[警告] テンソル情報の出力に失敗: {0}").format(str(e)))
+        print(("[警告] テンソル情報の出力に失敗: {0}").format(str(e)))
 
 
 def ensure_tensor_properties(
@@ -68,7 +67,7 @@ def ensure_tensor_properties(
         return tensor
     except Exception as e:
         raise RuntimeError(
-            translate("テンソルプロパティの調整に失敗: {0}").format(str(e))
+            ("テンソルプロパティの調整に失敗: {0}").format(str(e))
         )
 
 
@@ -118,7 +117,7 @@ def process_tensor_chunk(
 
         # 進捗状況を更新
         chunk_progress = (chunk_idx + 1) / num_chunks * 100
-        progress_message = translate(
+        progress_message = (
             "テンソルデータ結合中: チャンク {0}/{1} (フレーム {2}-{3}/{4})"
         ).format(
             chunk_idx + 1,
@@ -135,14 +134,14 @@ def process_tensor_chunk(
                     progress_message,
                     make_progress_bar_html(
                         int(80 + chunk_progress * 0.1),
-                        translate("テンソルデータ処理中"),
+                        ("テンソルデータ処理中"),
                     ),
                 ),
             )
         )
 
         print(
-            translate("チャンク{0}/{1}処理中: フレーム {2}-{3}/{4}").format(
+            ("チャンク{0}/{1}処理中: フレーム {2}-{3}/{4}").format(
                 chunk_idx + 1,
                 num_chunks,
                 chunk_start,
@@ -154,7 +153,7 @@ def process_tensor_chunk(
         # メモリ状態を出力
         if torch.cuda.is_available():
             print(
-                translate(
+                (
                     "[MEMORY] チャンク{0}処理前のGPUメモリ: {1:.2f}GB/{2:.2f}GB"
                 ).format(
                     chunk_idx + 1,
@@ -174,18 +173,18 @@ def process_tensor_chunk(
             gc.collect()
 
         # VAEデコード処理
-        print(translate("[INFO] VAEデコード開始: チャンク{0}").format(chunk_idx + 1))
+        print(("[INFO] VAEデコード開始: チャンク{0}").format(chunk_idx + 1))
         stream.output_queue.push(
             (
                 "progress",
                 (
                     None,
-                    translate("チャンク{0}/{1}のVAEデコード中...").format(
+                    ("チャンク{0}/{1}のVAEデコード中...").format(
                         chunk_idx + 1, num_chunks
                     ),
                     make_progress_bar_html(
                         int(80 + chunk_progress * 0.1),
-                        translate("デコード処理"),
+                        ("デコード処理"),
                     ),
                 ),
             )
@@ -200,10 +199,10 @@ def process_tensor_chunk(
             current_chunk,
             vae,
             use_vae_cache,
-            translate("チャンク"),
+            ("チャンク"),
         )
         print(
-            translate(
+            (
                 "チャンク{0}のVAEデコード完了 (フレーム数: {1}, デコード後フレーム: {2})"
             ).format(chunk_idx + 1, chunk_frames, chunk_pixels.shape)
         )
@@ -213,7 +212,7 @@ def process_tensor_chunk(
         return chunk_pixels
 
     except Exception as e:
-        error_msg = translate("チャンク{0}の処理中にエラーが発生: {1}").format(
+        error_msg = ("チャンク{0}の処理中にエラーが発生: {1}").format(
             chunk_idx + 1, str(e)
         )
         print(f"[エラー] {error_msg}")
@@ -324,7 +323,7 @@ def process_tensor_chunks(
                 # 結合後のフレーム数を確認
                 current_total_frames = combined_pixels.shape[2]
                 print(
-                    translate(
+                    (
                         "チャンク{0}の結合完了: 現在の組み込みフレーム数 = {1}"
                     ).format(chunk_idx + 1, current_total_frames)
                 )
@@ -339,7 +338,7 @@ def process_tensor_chunks(
                         f"{job_id}_combined_interim_{chunk_idx + 1}.mp4",
                     )
                     print(
-                        translate("中間結果を保存中: チャンク{0}/{1}").format(
+                        ("中間結果を保存中: チャンク{0}/{1}").format(
                             chunk_idx + 1, num_chunks
                         )
                     )
@@ -352,12 +351,12 @@ def process_tensor_chunks(
                                 "progress",
                                 (
                                     None,
-                                    translate(
+                                    (
                                         "中間結果のMP4変換中... (チャンク{0}/{1})"
                                     ).format(chunk_idx + 1, num_chunks),
                                     make_progress_bar_html(
                                         int(85 + chunk_progress * 0.1),
-                                        translate("MP4保存中"),
+                                        ("MP4保存中"),
                                     ),
                                 ),
                             )
@@ -371,7 +370,7 @@ def process_tensor_chunks(
                             crf=mp4_crf,
                         )
                         print(
-                            translate("中間結果を保存しました: {0}").format(
+                            ("中間結果を保存しました: {0}").format(
                                 interim_output_filename
                             )
                         )
@@ -386,7 +385,7 @@ def process_tensor_chunks(
                     torch.cuda.empty_cache()
 
             except Exception as e:
-                error_msg = translate("チャンク{0}の処理中にエラー: {1}").format(
+                error_msg = ("チャンク{0}の処理中にエラー: {1}").format(
                     chunk_idx + 1, str(e)
                 )
                 print(f"[エラー] {error_msg}")
@@ -395,7 +394,7 @@ def process_tensor_chunks(
         return combined_pixels, num_chunks
 
     except Exception as e:
-        error_msg = translate("テンソル処理中に重大なエラーが発生: {0}").format(str(e))
+        error_msg = ("テンソル処理中に重大なエラーが発生: {0}").format(str(e))
         print(f"[重大エラー] {error_msg}")
         raise RuntimeError(error_msg)
 
