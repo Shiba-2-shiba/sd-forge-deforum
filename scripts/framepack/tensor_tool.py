@@ -144,7 +144,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             prompt_embeds=prompt_embeds.to(transformer.dtype), prompt_embeds_mask=prompt_embeds_mask,
             prompt_poolers=prompt_poolers.to(transformer.dtype), negative_prompt_embeds=n_prompt_embeds.to(transformer.dtype),
             negative_prompt_embeds_mask=n_prompt_embeds_mask, negative_prompt_poolers=n_prompt_poolers.to(transformer.dtype),
-            image_embeddings=image_embeddings.to(transformer.dtype), latent_indices=None, clean_latents=current_latent,
+            image_embeddings=image_embeddings.to(transformer.dtype), latent_indices=None, initial_latent=current_latent,
             clean_latent_indices=torch.tensor([[0]], device=device), device=device, dtype=torch.bfloat16,
         )
         
