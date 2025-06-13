@@ -1478,7 +1478,7 @@ def FramePackF1Args():
             "label": "Image Strength (F1 Mode)",
             "type": "slider",
             "minimum": 0.0,
-            "maximum": 1.2,
+            "maximum": 1.0,
             "step": 0.01,
             "value": 0.85,
             "info": "Influence of the initial image. Higher values stick closer to the start image. (1.0 = 100%)",
