@@ -1,3 +1,5 @@
+# k_diffusion_hunyuan.py
+
 import torch
 import math
 
@@ -31,7 +33,7 @@ def sample_hunyuan(
         initial_latent=None,
         concat_latent=None,
         strength=1.0,
-        mix_strength=1.0,  # ★★★ 1. 混合用のstrengthを新たに追加 ★★★
+        mix_strength=1.0,  # 混合用のstrength
         width=512,
         height=512,
         frames=16,
@@ -56,28 +58,10 @@ def sample_hunyuan(
 ):
     device = device or transformer.device
 
-    # ★★★ ログ1: 関数の入力となる initial_latent の状態 ★★★
-    if initial_latent is not None:
-        # ★★★ 2. ロジックを分離 ★★★
-        # サンプリングスケジュール全体は 'strength' でスケーリング（品質のため）
-        sampling_sigmas = sigmas * strength
-        # 初期latentの混合は 'mix_strength' で行う
-        # first_sigmaは元の（スケールされていない）sigmaから計算する
-        sigma_for_mixing = sigmas[0].to(device=device, dtype=torch.float32) * mix_strength
-
-        initial_latent = initial_latent.to(device=device, dtype=torch.float32)
-        latents = initial_latent.float() * (1.0 - sigma_for_mixing) + latents.float() * sigma_for_mixing
-
-        # 本来のサンプリングには、strengthでスケールしたsigmasを渡す
-        sigmas = sampling_sigmas
-        
-        print(f"\n[LOG 1] initial_latent received by sampler:"
-              f"\n  - shape: {initial_latent.shape}, dtype: {initial_latent.dtype}"
-              f"\n  - min: {initial_latent.min():.4f}, max: {initial_latent.max():.4f}, mean: {initial_latent.mean():.4f}\n")
-
     if batch_size is None:
         batch_size = int(prompt_embeds.shape[0])
 
+    # 1. まず純粋なランダムノイズを生成する
     latents = torch.randn((batch_size, 16, (frames + 3) // 4, height // 8, width // 8), generator=generator, device=generator.device).to(device=device, dtype=torch.float32)
 
     # ★★★ ログ2: 生成された初期ノイズの状態 ★★★
@@ -85,6 +69,7 @@ def sample_hunyuan(
           f"\n  - shape: {latents.shape}, dtype: {latents.dtype}"
           f"\n  - min: {latents.min():.4f}, max: {latents.max():.4f}, mean: {latents.mean():.4f}\n")
 
+    # 2. sigmasを計算・定義する
     B, C, T, H, W = latents.shape
     seq_length = T * H * W // 4
 
@@ -95,20 +80,33 @@ def sample_hunyuan(
 
     sigmas = get_flux_sigmas_from_mu(num_inference_steps, mu).to(device)
 
-    k_model = fm_wrapper(transformer)
-
+    # 3. initial_latentが存在する場合、混合処理を行う
     if initial_latent is not None:
-        sigmas = sigmas * strength
-        first_sigma = sigmas[0].to(device=device, dtype=torch.float32)
+        # ★★★ ログ1: 関数の入力となる initial_latent の状態 ★★★
+        print(f"\n[LOG 1] initial_latent received by sampler:"
+              f"\n  - shape: {initial_latent.shape}, dtype: {initial_latent.dtype}"
+              f"\n  - min: {initial_latent.min():.4f}, max: {initial_latent.max():.4f}, mean: {initial_latent.mean():.4f}\n")
+              
+        # 初期latentの混合は 'mix_strength' で行う
+        sigma_for_mixing = sigmas[0].to(device=device, dtype=torch.float32) * mix_strength
+        
         initial_latent = initial_latent.to(device=device, dtype=torch.float32)
-        latents = initial_latent.float() * (1.0 - first_sigma) + latents.float() * first_sigma
+        
+        # ここで`latents`（純粋ノイズ）を`initial_latent`で上書き混合する
+        latents = initial_latent.float() * (1.0 - sigma_for_mixing) + latents.float() * sigma_for_mixing
 
         # ★★★ ログ3: ノイズ混合後の latent の状態 ★★★
         print(f"\n[LOG 3] 'latents' after mixing with initial_latent (INPUT to UNet):"
               f"\n  - mix_strength: {mix_strength:.4f}, sigma_for_mixing: {sigma_for_mixing:.4f}"
               f"\n  - shape: {latents.shape}, dtype: {latents.dtype}"
               f"\n  - min: {latents.min():.4f}, max: {latents.max():.4f}, mean: {latents.mean():.4f}\n")
-        
+    
+    # 4. サンプリングスケジュールの最終調整
+    # サンプリングスケジュール全体は 'strength' でスケーリング（品質のため）
+    sampling_sigmas = sigmas * strength
+    
+    k_model = fm_wrapper(transformer)
+
     if concat_latent is not None:
         concat_latent = concat_latent.to(latents)
 
@@ -144,7 +142,8 @@ def sample_hunyuan(
     )
 
     if sampler == 'unipc':
-        results = sample_unipc(k_model, latents, sigmas, extra_args=sampler_kwargs, disable=False, callback=callback)
+        # 5. 最終的に調整されたlatentsとsampling_sigmasでサンプラーを呼び出す
+        results = sample_unipc(k_model, latents, sampling_sigmas, extra_args=sampler_kwargs, disable=False, callback=callback)
     else:
         raise NotImplementedError(f'Sampler {sampler} is not supported.')
 
