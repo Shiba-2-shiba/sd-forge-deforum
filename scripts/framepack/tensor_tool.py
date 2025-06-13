@@ -77,7 +77,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     steps = args.steps
     width, height = args.W, args.H
 
-    strength = framepack_f1_args.f1_image_strength # ★★★ このように変更 ★★★
+    strength = 1.0 - framepack_f1_args.f1_image_strength # ★★★ このように変更 ★★★
     cfg = parse_schedule_string(getattr(anim_args, 'cfg_scale_schedule', "0: (7.0)"))
     gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
