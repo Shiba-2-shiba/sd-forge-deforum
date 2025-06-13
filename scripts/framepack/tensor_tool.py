@@ -77,7 +77,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     steps = args.steps
     width, height = args.W, args.H
 
-    strength = 1.0 - framepack_f1_args.f1_image_strength # ★★★ このように変更 ★★★
+    mix_strength = 1.0 - framepack_f1_args.f1_image_strength # ★★★ このように変更 ★★★
     cfg = parse_schedule_string(getattr(anim_args, 'cfg_scale_schedule', "0: (7.0)"))
     gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
@@ -138,7 +138,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         frames_to_generate_in_latent = latent_window_size * 4 - 3
 
         sampler_kwargs = dict(
-            transformer=transformer, sampler="unipc", strength=strength, width=bucket_w, height=bucket_h,
+            transformer=transformer, sampler="unipc", strength=1.0, mix_strength=mix_strength, width=bucket_w, height=bucket_h,
             frames=frames_to_generate_in_latent, real_guidance_scale=cfg, distilled_guidance_scale=gs,
             guidance_rescale=rs, num_inference_steps=steps, generator=rnd,
             prompt_embeds=prompt_embeds.to(transformer.dtype), prompt_embeds_mask=prompt_embeds_mask,
