@@ -31,6 +31,7 @@ def sample_hunyuan(
         initial_latent=None,
         concat_latent=None,
         strength=1.0,
+        mix_strength=1.0,  # ★★★ 1. 混合用のstrengthを新たに追加 ★★★
         width=512,
         height=512,
         frames=16,
@@ -57,6 +58,19 @@ def sample_hunyuan(
 
     # ★★★ ログ1: 関数の入力となる initial_latent の状態 ★★★
     if initial_latent is not None:
+        # ★★★ 2. ロジックを分離 ★★★
+        # サンプリングスケジュール全体は 'strength' でスケーリング（品質のため）
+        sampling_sigmas = sigmas * strength
+        # 初期latentの混合は 'mix_strength' で行う
+        # first_sigmaは元の（スケールされていない）sigmaから計算する
+        sigma_for_mixing = sigmas[0].to(device=device, dtype=torch.float32) * mix_strength
+
+        initial_latent = initial_latent.to(device=device, dtype=torch.float32)
+        latents = initial_latent.float() * (1.0 - sigma_for_mixing) + latents.float() * sigma_for_mixing
+
+        # 本来のサンプリングには、strengthでスケールしたsigmasを渡す
+        sigmas = sampling_sigmas
+        
         print(f"\n[LOG 1] initial_latent received by sampler:"
               f"\n  - shape: {initial_latent.shape}, dtype: {initial_latent.dtype}"
               f"\n  - min: {initial_latent.min():.4f}, max: {initial_latent.max():.4f}, mean: {initial_latent.mean():.4f}\n")
@@ -90,11 +104,11 @@ def sample_hunyuan(
         latents = initial_latent.float() * (1.0 - first_sigma) + latents.float() * first_sigma
 
         # ★★★ ログ3: ノイズ混合後の latent の状態 ★★★
-        print(f"[LOG 3] 'latents' after mixing with initial_latent (INPUT to UNet):"
-              f"\n  - strength: {strength:.4f}, first_sigma: {first_sigma:.4f}"
+        print(f"\n[LOG 3] 'latents' after mixing with initial_latent (INPUT to UNet):"
+              f"\n  - mix_strength: {mix_strength:.4f}, sigma_for_mixing: {sigma_for_mixing:.4f}"
               f"\n  - shape: {latents.shape}, dtype: {latents.dtype}"
               f"\n  - min: {latents.min():.4f}, max: {latents.max():.4f}, mean: {latents.mean():.4f}\n")
-
+        
     if concat_latent is not None:
         concat_latent = concat_latent.to(latents)
 
