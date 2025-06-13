@@ -40,7 +40,7 @@ def split_weighted_subprompts(text, frame=0, max_frames=0):
     """
     splits the prompt based on deforum webui implementation, moved from generate.py 
     """
-    math_parser = re.compile("(?P<weight>(`[\S\s]*?`))", re.VERBOSE)
+    math_parser = re.compile(r"(?P<weight>(`[\S\s]*?`))", re.VERBOSE)
 
     parsed_prompt = re.sub(math_parser, lambda m: str(parse_weight(m, frame)), text)
 
