@@ -5,16 +5,20 @@ This is an experimental fork version designed to run the Framepack F1 model in m
 このリポジトリはFramepack F1の実装を試みた実験的なリポジトリです。
 
 FramePackモードの使用にはForgeの「requirements_versions.txt」を編集する必要があります。
+
 ①　peft==0.14.0
+
 ②　huggingface-hub==0.32.4
+
 
 FramePackの実装に以下のリポジトリのコードを参考にさせて頂きました。感謝します。
 
-①　https://github.com/git-ai-code/FramePack-eichi/tree/main
+①　https://github.com/git-ai-code/FramePack-eichi
 
 ②　https://github.com/lllyasviel/FramePack
 
-Teacache、fp8利用はデフォルトで適用しています。Loraは、Loraフォルダ内に直接safetensorsファイルを配置してください。
+
+Teacache、fp8利用はデフォルトで適用しています。Loraも使用可能です。
 
 プロンプトは「0：」の一つだけ反映されます。
 
