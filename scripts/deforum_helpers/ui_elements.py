@@ -322,7 +322,8 @@ def get_tab_keyframes(d, da, dloopArgs, df1):
                 with FormRow() as depth_warp_row_7:
                     far_schedule = create_gr_elem(da.far_schedule)
 
-        with gr.Accordion('FramePack F1 Settings', open=True, visible=False) as framepack_f1_accordion:
+        with gr.Accordion('FramePack F1 Settings', open=True,
+                          visible=(da.animation_mode == 'FramePack F1')) as framepack_f1_accordion:
             f1_image_strength = create_row(df1.f1_image_strength)
             f1_generation_latent_size = create_row(df1.f1_generation_latent_size)
             f1_trim_start_latent_size = create_row(df1.f1_trim_start_latent_size)
