@@ -138,3 +138,5 @@ def sample_hunyuan(
     print(f"\n[LOG 4] Final 'results' from sampler:"
           f"\n  - shape: {results.shape}, dtype: {results.dtype}"
           f"\n  - min: {results.min():.4f}, max: {results.max():.4f}, mean: {results.mean():.4f}\n")
+    return results # この行を追加
+}
