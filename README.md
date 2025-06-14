@@ -8,13 +8,19 @@ FramePackモードの使用にはForgeの「requirements_versions.txt」を編�
 ①　peft==0.14.0
 ②　huggingface-hub==0.32.4
 
-FramePackの実装に以下のリポジトリのコードを参考にさせて戴いました。
+FramePackの実装に以下のリポジトリのコードを参考にさせて頂きました。感謝します。
+
 ①　https://github.com/git-ai-code/FramePack-eichi/tree/main
+
 ②　https://github.com/lllyasviel/FramePack
 
 Teacache、fp8利用はデフォルトで適用しています。Loraは、Loraフォルダ内に直接safetensorsファイルを配置してください。
 
+プロンプトは「0：」の一つだけ反映されます。
 
+フレーム数は33の倍数が生成されます。
+
+初期画像は「Image init」タブのURLのみ対応しています。
 
 # Zirteq Fluxabled Fork
 
