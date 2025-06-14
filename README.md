@@ -1,10 +1,62 @@
 # Important: About this fork  
-This is an experimental fork version designed to run the Wan2.1 model in my own environment.  
-- You must have at least 16 GB of VRAM.  
-- In the “Extensions” tab of Forge, make sure you also clone:  
-  `https://github.com/Wan-Video/Wan2.1`  
----
+This is an experimental fork version designed to run the Framepack F1 model in my own environment.  
+- Wan2.1 is broken.
 
+このリポジトリはFramepack F1の実装を試みた実験的なリポジトリです。
+
+## ＜注意点１＞
+FramePackモードの使用にはForgeの「requirements_versions.txt」を編集する必要があります。
+
+```
+peft==0.14.0
+
+huggingface-hub==0.32.4
+```
+
+## ＜注意点２＞
+Framepack F1 modelは、自動ダウンロードできないため、手動で、この拡張機能の「model」フォルダに配置する必要があります。
+
+コマンドは以下
+
+```
+Your directory /stable-diffusion-webui-forge/extensions/sd-forge-deforum/scripts/framepack/
+python3 model_downloader.py
+```
+
+FramePackの実装に以下のリポジトリのコードを参考にさせて頂きました。感謝します。
+
+①　https://github.com/git-ai-code/FramePack-eichi
+
+②　https://github.com/lllyasviel/FramePack
+
+
+## ＜使える機能とかUIの説明＞
+Teacache、fp8利用はデフォルトで適用しています。Loraも使用可能です。
+
+プロンプトは「0：」の一つだけ反映されます。
+
+![初期化画面](docs/prompt.png)
+
+フレーム数はキーフレームタブで指定でき、33の倍数が生成されます。
+
+![初期化画面](docs/keyframetab.png)
+
+初期画像は「Image init」タブのURLのみ対応しています。
+
+![初期化画面](docs/Image_init.png)
+
+「Keyframes」タブの「FramePack F1」モードを選択すると、下に「FramePack F1 Settings」が表示されます。
+出現しない場合は他のモードを選択して切り替えてください。
+
+![Framepack F1 設定画面](docs/FramepackF1setting.png)
+
+Image Strength (F1 Mode)　：　デフォルト値が１です。これを下げると動きが小さくなります
+
+Generation Latent Size (F1 Mode)　：　1チャンクあたりのキーフレーム数です。デフォルト値が9です
+
+Trim Start Frames (F1 Mode)　：　基本使わなくて良いかと思います
+
+Lora　：　3個まで設定可能です。Loraフォルダ直下にあるファイルが認識されます。
 
 # Zirteq Fluxabled Fork
 

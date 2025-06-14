@@ -7,13 +7,13 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from diffusers.configuration_utils import ConfigMixin, register_to_config
-from diffusers.schedulers.scheduling_utils import (
+from ...diffusers.configuration_utils import ConfigMixin, register_to_config
+from ...diffusers.schedulers.scheduling_utils import (
     KarrasDiffusionSchedulers,
     SchedulerMixin,
     SchedulerOutput,
 )
-from diffusers.utils import deprecate, is_scipy_available
+from ...diffusers.utils import deprecate, is_scipy_available
 
 if is_scipy_available():
     import scipy.stats

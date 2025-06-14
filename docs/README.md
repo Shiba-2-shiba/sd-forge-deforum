@@ -16,6 +16,8 @@ For general Deforum documentation, see the main [README.md](../README.md) which 
 - Camera Shakify effects
 - Subtitle generation
 - Troubleshooting
+- [Init Image Processing & Custom Modes](INIT_IMAGE_PROCESSING.md) -
+  Detailed init image workflow and guidance for new animation modes
 
 ## Contributing
 
