@@ -22,6 +22,16 @@ Teacache、fp8利用はデフォルトで適用しています。Loraは、Lora�
 
 初期画像は「Image init」タブのURLのみ対応しています。
 
+「Keyframes」タブの「FramePack F1」モードを選択すると、下に「FramePack F1 Settings」が表示されます。
+
+Image Strength (F1 Mode)　：　デフォルト値が１です。これを下げると動きが小さくなります
+
+Generation Latent Size (F1 Mode)　：　1チャンクあたりのキーフレーム数です。デフォルト値が9です
+
+Trim Start Frames (F1 Mode)　：　基本使わなくて良いかと思います
+
+Lora　：　3個まで設定可能です。Loraフォルダ直下にあるファイルが認識されます。
+
 # Zirteq Fluxabled Fork
 
 Experimental fork of the [Deforum extension](https://github.com/deforum-art/sd-forge-deforum)
