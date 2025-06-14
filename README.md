@@ -7,9 +7,11 @@ This is an experimental fork version designed to run the Framepack F1 model in m
 ## ＜注意点１＞
 FramePackモードの使用にはForgeの「requirements_versions.txt」を編集する必要があります。
 
-①　peft==0.14.0
+```
+peft==0.14.0
 
-②　huggingface-hub==0.32.4
+huggingface-hub==0.32.4
+```
 
 ## ＜注意点２＞
 Framepack F1 modelは、自動ダウンロードできないため、手動で、この拡張機能の「model」フォルダに配置する必要があります。
