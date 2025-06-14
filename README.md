@@ -26,7 +26,11 @@ Teacache、fp8利用はデフォルトで適用しています。Loraも使用�
 
 初期画像は「Image init」タブのURLのみ対応しています。
 
+![初期化画面](docs/Image_init.png)
+
 「Keyframes」タブの「FramePack F1」モードを選択すると、下に「FramePack F1 Settings」が表示されます。
+
+![Framepack F1 設定画面](docs/FramepackF1setting.png)
 
 Image Strength (F1 Mode)　：　デフォルト値が１です。これを下げると動きが小さくなります
 
