@@ -4,12 +4,22 @@ This is an experimental fork version designed to run the Framepack F1 model in m
 
 このリポジトリはFramepack F1の実装を試みた実験的なリポジトリです。
 
+## ＜注意点１＞
 FramePackモードの使用にはForgeの「requirements_versions.txt」を編集する必要があります。
 
 ①　peft==0.14.0
 
 ②　huggingface-hub==0.32.4
 
+## ＜注意点２＞
+Framepack F1 modelは、自動ダウンロードできないため、手動で、この拡張機能の「model」フォルダに配置する必要があります。
+
+コマンドは以下
+
+```
+Your directory /stable-diffusion-webui-forge/extensions/sd-forge-deforum/scripts/framepack/
+python3 model_downloader.py
+```
 
 FramePackの実装に以下のリポジトリのコードを参考にさせて頂きました。感謝します。
 
@@ -18,6 +28,7 @@ FramePackの実装に以下のリポジトリのコードを参考にさせて�
 ②　https://github.com/lllyasviel/FramePack
 
 
+## ＜使える機能とかUIの説明＞
 Teacache、fp8利用はデフォルトで適用しています。Loraも使用可能です。
 
 プロンプトは「0：」の一つだけ反映されます。
