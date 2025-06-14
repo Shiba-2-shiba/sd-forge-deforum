@@ -207,6 +207,10 @@ class TransformerManager:
             self.transformer.high_quality_fp32_output_for_inference = True
             self.transformer.requires_grad_(False)
             
+            # TeaCacheをデフォルトで有効化
+            print("Enabling TeaCache by default...")
+            self.transformer.initialize_teacache()
+            
             # VRAMモードに応じたデバイス配置
             if self.next_state['high_vram']:
                 print("High VRAM mode: Moving entire transformer to GPU...")
