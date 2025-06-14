@@ -1,9 +1,8 @@
 # Important: About this fork  
-This is an experimental fork version designed to run the Wan2.1 model in my own environment.  
-- You must have at least 16 GB of VRAM.  
-- In the “Extensions” tab of Forge, make sure you also clone:  
-  `https://github.com/Wan-Video/Wan2.1`  
----
+This is an experimental fork version designed to run the Framepack F1 model in my own environment.  
+- Wan2.1 is broken.
+
+このリポジトリはFramepack F1の実装を試みた実験的なリポジトリです。
 
 FramePackモードの使用にはForgeの「requirements_versions.txt」を編集する必要があります。
 ①　peft==0.14.0
@@ -13,7 +12,7 @@ FramePackの実装に以下のリポジトリのコードを参考にさせて�
 ①　https://github.com/git-ai-code/FramePack-eichi/tree/main
 ②　https://github.com/lllyasviel/FramePack
 
-Teacache、fp8利用はデフォルトで適用しています。
+Teacache、fp8利用はデフォルトで適用しています。Loraは、Loraフォルダ内に直接safetensorsファイルを配置してください。
 
 
 
