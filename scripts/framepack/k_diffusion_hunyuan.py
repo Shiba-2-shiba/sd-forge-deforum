@@ -1,9 +1,9 @@
 import torch
 import math
 
-from .uni_pc_fm import sample_unipc
-from .wrapper import fm_wrapper
-from .utils import repeat_to_batch_size
+from diffusers_helper.k_diffusion.uni_pc_fm import sample_unipc
+from diffusers_helper.k_diffusion.wrapper import fm_wrapper
+from diffusers_helper.utils import repeat_to_batch_size
 
 
 def flux_time_shift(t, mu=1.15, sigma=1.0):
@@ -55,21 +55,10 @@ def sample_hunyuan(
 ):
     device = device or transformer.device
 
-    # ★★★ ログ1: 関数の入力となる initial_latent の状態 ★★★
-    if initial_latent is not None:
-        print(f"\n[LOG 1] initial_latent received by sampler:"
-              f"\n  - shape: {initial_latent.shape}, dtype: {initial_latent.dtype}"
-              f"\n  - min: {initial_latent.min():.4f}, max: {initial_latent.max():.4f}, mean: {initial_latent.mean():.4f}\n")
-
     if batch_size is None:
         batch_size = int(prompt_embeds.shape[0])
 
     latents = torch.randn((batch_size, 16, (frames + 3) // 4, height // 8, width // 8), generator=generator, device=generator.device).to(device=device, dtype=torch.float32)
-
-    # ★★★ ログ2: 生成された初期ノイズの状態 ★★★
-    print(f"[LOG 2] Initial random noise 'latents' created:"
-          f"\n  - shape: {latents.shape}, dtype: {latents.dtype}"
-          f"\n  - min: {latents.min():.4f}, max: {latents.max():.4f}, mean: {latents.mean():.4f}\n")
 
     B, C, T, H, W = latents.shape
     seq_length = T * H * W // 4
@@ -88,12 +77,6 @@ def sample_hunyuan(
         first_sigma = sigmas[0].to(device=device, dtype=torch.float32)
         initial_latent = initial_latent.to(device=device, dtype=torch.float32)
         latents = initial_latent.float() * (1.0 - first_sigma) + latents.float() * first_sigma
-
-        # ★★★ ログ3: ノイズ混合後の latent の状態 ★★★
-        print(f"[LOG 3] 'latents' after mixing with initial_latent (INPUT to UNet):"
-              f"\n  - strength: {strength:.4f}, first_sigma: {first_sigma:.4f}"
-              f"\n  - shape: {latents.shape}, dtype: {latents.dtype}"
-              f"\n  - min: {latents.min():.4f}, max: {latents.max():.4f}, mean: {latents.mean():.4f}\n")
 
     if concat_latent is not None:
         concat_latent = concat_latent.to(latents)
@@ -134,9 +117,4 @@ def sample_hunyuan(
     else:
         raise NotImplementedError(f'Sampler {sampler} is not supported.')
 
-    # ★★★ ログ4: サンプラーからの最終出力 ★★★
-    print(f"\n[LOG 4] Final 'results' from sampler:"
-          f"\n  - shape: {results.shape}, dtype: {results.dtype}"
-          f"\n  - min: {results.min():.4f}, max: {results.max():.4f}, mean: {results.mean():.4f}\n")
-    return results # この行を追加
-}
+    return results
