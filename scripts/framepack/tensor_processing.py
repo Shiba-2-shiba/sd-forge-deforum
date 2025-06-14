@@ -307,21 +307,19 @@ def process_tensor_chunks(
                 if combined_pixels is None:
                     combined_pixels = chunk_pixels
                 else:
-                    # ★★★ 解決策 ★★★
-                    # 結合する両方のテンソルを明示的にCPUに移動させる
-                    # 以前は`current_chunk`を誤って移動させていたため、デバイス不一致エラーが発生していた
+                    # 両方とも必ずCPUに移動してから結合
+                    current_chunk = ensure_tensor_properties(
+                        current_chunk, torch.device("cpu")
+                    )
                     combined_pixels = ensure_tensor_properties(
                         combined_pixels, torch.device("cpu")
                     )
-                    chunk_pixels = ensure_tensor_properties(
-                        chunk_pixels, torch.device("cpu")
-                    )
-                    
                     # 結合処理
                     combined_pixels = torch.cat(
                         [combined_pixels, chunk_pixels],
                         dim=2,
                     )
+
                 # 結合後のフレーム数を確認
                 current_total_frames = combined_pixels.shape[2]
                 print(
