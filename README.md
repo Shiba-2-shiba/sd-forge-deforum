@@ -35,13 +35,18 @@ Teacache、fp8利用はデフォルトで適用しています。Loraも使用�
 
 プロンプトは「0：」の一つだけ反映されます。
 
-フレーム数は33の倍数が生成されます。
+![初期化画面](docs/prompt.png)
+
+フレーム数はキーフレームタブで指定でき、33の倍数が生成されます。
+
+![初期化画面](docs/keyframetab.png)
 
 初期画像は「Image init」タブのURLのみ対応しています。
 
 ![初期化画面](docs/Image_init.png)
 
 「Keyframes」タブの「FramePack F1」モードを選択すると、下に「FramePack F1 Settings」が表示されます。
+出現しない場合は他のモードを選択して切り替えてください。
 
 ![Framepack F1 設定画面](docs/FramepackF1setting.png)
 
