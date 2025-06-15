@@ -154,6 +154,14 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             history_latents[:, :, -sum([16, 2, 1]):, :, :].split([16, 2, 1], dim=2)
 
         clean_latents = torch.cat([start_latent.cpu(), clean_latents_1x], dim=2)
+
+        # 履歴コンテキストの影響をわずかに減衰させる（例: 5%減）
+        # これにより、過去のフレームの残像効果を弱めることを狙う
+        damping_factor = 1.08
+        clean_latents = clean_latents * damping_factor
+        print(f"[tensor_tool] Applied context damping with factor: {damping_factor}")
+
+
         # --- コンテキスト生成ここまで ---
 
         sampler_kwargs = dict(
