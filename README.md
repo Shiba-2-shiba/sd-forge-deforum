@@ -58,6 +58,19 @@ Trim Start Frames (F1 Mode)　：　基本使わなくて良いかと思いま�
 
 Lora　：　3個まで設定可能です。Loraフォルダ直下にあるファイルが認識されます。
 
+![Framepack F1 設定画面](docs/output.png)
+
+生成画像のFPSはoutputタブで設定します。
+
+## ＜UIの注意点＞
+
+![Framepack F1 設定画面](docs/finishedUI.png)
+
+生成が終了すると「error」とUI上は表記されますが、mp4やpngファイルは問題なく作成されています。
+
+赤枠部をクリックすると生成した動画を見る事が可能です。
+
+
 # Zirteq Fluxabled Fork
 
 Experimental fork of the [Deforum extension](https://github.com/deforum-art/sd-forge-deforum)
