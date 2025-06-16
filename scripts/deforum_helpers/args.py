@@ -1477,10 +1477,10 @@ def FramePackF1Args():
         "f1_image_strength": {
             "label": "Image Strength (F1 Mode)",
             "type": "slider",
-            "minimum": 0.99,
+            "minimum": 0.98,
             "maximum": 1.0,
             "step": 0.0001,
-            "value": 1.8,
+            "value": 1.0,
             "info": "Influence of the initial image. Higher values stick closer to the start image. (1.0 = 100%)",
         },
         "f1_generation_latent_size": {
@@ -1492,14 +1492,14 @@ def FramePackF1Args():
             "value": 9,
             "info": "Frames to generate to connect to the initial image. (Recommended: 6-9)",
         },
-        "f1_trim_start_latent_size": {
-            "label": "Trim Start Frames (F1 Mode)",
+        "f1_context_damping_factor": {
+            "label": "Context Damping Factor",
             "type": "slider",
-            "minimum": 0,
-            "maximum": 5,
-            "step": 1,
-            "value": 0,
-            "info": "Frames to trim from the beginning of the video (if noise is present).",
+            "minimum": 1.0,
+            "maximum": 1.2,
+            "step": 0.01,
+            "value": 1.08,
+            "info": "Damping factor applied to context latents.",
         },
         "lora_path_1": {
             "label": "LoRA Slot 1",

@@ -326,7 +326,7 @@ def get_tab_keyframes(d, da, dloopArgs, df1):
                           visible=(da.animation_mode == 'FramePack F1')) as framepack_f1_accordion:
             f1_image_strength = create_row(df1.f1_image_strength)
             f1_generation_latent_size = create_row(df1.f1_generation_latent_size)
-            f1_trim_start_latent_size = create_row(df1.f1_trim_start_latent_size)
+            f1_context_damping_factor = create_row(df1.f1_context_damping_factor)
             lora_path_1, lora_weight_1 = create_row(df1, 'lora_path_1', 'lora_weight_1')
             lora_path_2, lora_weight_2 = create_row(df1, 'lora_path_2', 'lora_weight_2')
             lora_path_3, lora_weight_3 = create_row(df1, 'lora_path_3', 'lora_weight_3')
