@@ -50,11 +50,11 @@ Teacache、fp8利用はデフォルトで適用しています。Loraも使用�
 
 ![Framepack F1 設定画面](docs/FramepackF1setting.png)
 
-Image Strength (F1 Mode)　：　デフォルト値が１です。これを下げると動きが小さくなります
+Image Strength (F1 Mode)　：　デフォルト値は1.0です。これを下げると動きが小さくなります
 
 Generation Latent Size (F1 Mode)　：　1チャンクあたりのキーフレーム数です。デフォルト値が9です
 
-Trim Start Frames (F1 Mode)　：　基本使わなくて良いかと思います
+Context Damping Factor (F1 Mode)　：　コンテキストの影響をほどよく減衰させる値です。デフォルトは1.08、上限1.2、下限1.0で設定できます
 
 Lora　：　3個まで設定可能です。Loraフォルダ直下にあるファイルが認識されます。
 
