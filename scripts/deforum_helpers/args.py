@@ -1478,7 +1478,7 @@ def FramePackF1Args():
             "label": "Image Strength (F1 Mode)",
             "type": "slider",
             "minimum": 0.98,
-            "maximum": 1.0,
+            "maximum": 1.02,
             "step": 0.0001,
             "value": 1.0,
             "info": "Influence of the initial image. Higher values stick closer to the start image. (1.0 = 100%)",
@@ -1495,7 +1495,7 @@ def FramePackF1Args():
         "f1_context_damping_factor": {
             "label": "Context Damping Factor",
             "type": "slider",
-            "minimum": 1.0,
+            "minimum": 0.8,
             "maximum": 1.2,
             "step": 0.01,
             "value": 1.08,
