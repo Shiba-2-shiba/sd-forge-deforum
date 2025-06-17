@@ -1,6 +1,6 @@
 # Important: About this fork  
 This is an experimental fork version designed to run the Framepack F1 model in my own environment.  
-- Wan2.1 is broken.
+- Wan2.1 is broken if you change requirements_versions.txt in forge.
 
 このリポジトリはFramepack F1の実装を試みた実験的なリポジトリです。
 
