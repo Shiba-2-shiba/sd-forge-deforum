@@ -4,7 +4,7 @@ import torch
 from torch.nn import functional as F
 from einops import rearrange
 from .attn_mask import RadialAttention, MaskMap
-from ..hunyuan import Attention # 親ディレクトリのhunyuan.pyからAttentionをインポート
+from ...diffusers.models.attention_processor import Attention
 
 ORIGINAL_ATTENTION_FORWARD = Attention.forward
 
