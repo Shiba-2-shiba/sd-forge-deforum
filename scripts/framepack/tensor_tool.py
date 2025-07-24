@@ -1,4 +1,5 @@
 # tensor_tool.py (tensor_processing.py連携 最終版)
+# Radial Attentionをデフォルトで有効にするための変更を含む
 
 import os
 import torch
@@ -30,6 +31,9 @@ from .memory import (
     offload_model_from_device_for_memory_preservation,
 )
 
+# === Radial Attention実装のためのインポート ===
+from .radial_attn.patch import apply_radial_attention_patch
+
 # スケジュール文字列から数値を抽出するヘルパー関数
 def parse_schedule_string(schedule_str: str) -> float:
     """ "0: (1.23)" のような文字列から数値部分を抽出する """
@@ -47,6 +51,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     Deforumから呼び出される動画生成のメイン関数。
     複数チャンク生成に対応するためループ処理を導入し、
     チャンク毎のデコード処理をtensor_processingモジュールに委譲する。
+    Radial Attentionのパッチ適用とコールバック処理を統合。
     """
     print("[tensor_tool] Starting multi-chunk video generation process...")
 
@@ -70,6 +75,26 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     
     high_vram = transformer_manager.current_state['high_vram']
 
+    # === Radial Attentionパッチ適用処理 ===
+    # integration.pyから渡されたra_paramsを取得
+    ra_params = framepack_f1_args.get('ra_params', {})
+    if ra_params.get("enabled", False):
+        print("[tensor_tool] Applying Radial Attention patch to the transformer model...")
+        # チャンクあたりのフレーム数を計算
+        # f1_generation_latent_sizeはキーフレーム間のlatent数なので、実際のフレーム数に変換
+        num_frames_per_chunk = int(framepack_f1_args.f1_generation_latent_size * 4 - 3)
+        
+        apply_radial_attention_patch(
+            transformer, # パッチ対象はtransformerモデル
+            dense_layers=ra_params.get("dense_layers"),
+            dense_timesteps=ra_params.get("dense_timesteps"),
+            decay_factor=ra_params.get("decay_factor"),
+            num_frames=num_frames_per_chunk,
+            width=args.W,
+            height=args.H
+        )
+    # =======================================
+
     # --- 2. パラメータの準備 ---
     prompt = args.positive_prompts
     n_prompt = args.negative_prompts if hasattr(args, 'negative_prompts') else ""
@@ -77,13 +102,12 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     steps = args.steps
     width, height = args.W, args.H
 
-    strength = framepack_f1_args.f1_image_strength # ★★★ このように変更 ★★★
+    strength = framepack_f1_args.f1_image_strength
     cfg = parse_schedule_string(getattr(anim_args, 'cfg_scale_schedule', "0: (1.0)"))
     gs = parse_schedule_string(anim_args.distilled_cfg_scale_schedule)
     rs = getattr(framepack_f1_args, 'guidance_rescale', 0.0)
     latent_window_size = framepack_f1_args.f1_generation_latent_size
     
-    # ループ制御用の変数を初期化
     total_frames_to_generate = anim_args.max_frames
     start_frame_idx = anim_args.extract_from_frame if hasattr(anim_args, 'extract_from_frame') else 0
     frame_idx = start_frame_idx
@@ -118,11 +142,9 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     img_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1.0
     img_pt = img_pt.permute(2, 0, 1).unsqueeze(0).to(device).unsqueeze(2)
     current_latent = vae_encode(img_pt, vae)
-    # 生成履歴を保持するhistory_latentsを初期化
     history_latents = torch.zeros(size=(1, 16, 16 + 2 + 1, bucket_h // 8, bucket_w // 8), dtype=torch.float32, device=cpu)
     history_latents = torch.cat([history_latents, current_latent.to(cpu)], dim=2)
-    start_latent = current_latent.clone() # 開始latentを別途保持
-    # ▲▲▲【追加ここまで】▲▲▲
+    start_latent = current_latent.clone()
     if not high_vram: unload_complete_models(vae)
 
     if not high_vram: load_model_as_complete(image_encoder, target_device=device)
@@ -141,7 +163,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
         rnd = torch.Generator(device=device).manual_seed(seed + frame_idx)
         
-        # --- history_latentsからコンテキストを生成 ---
+        # --- コンテキスト生成 ---
         frames_to_generate_in_latent = int(latent_window_size * 4 - 3)
         effective_window_size = int(latent_window_size)
         indices = torch.arange(0, sum([1, 16, 2, 1, effective_window_size])).unsqueeze(0)
@@ -155,14 +177,18 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
 
         clean_latents = torch.cat([start_latent.cpu(), clean_latents_1x], dim=2)
 
-        # 履歴コンテキストの影響をわずかに減衰させる（例: 5%減）
-        # これにより、過去のフレームの残像効果を弱めることを狙う
         damping_factor = 1.08
         clean_latents = clean_latents * damping_factor
-        print(f"[tensor_tool] Applied context damping with factor: {damping_factor}")
-
-
-        # --- コンテキスト生成ここまで ---
+        
+        # === k-diffusionコールバックの定義 ===
+        # このコールバックはサンプリングループの各ステップで呼び出され、
+        # 現在のステップ数をtransformerモデルオブジェクトに格納します。
+        # これにより、パッチ適用されたAttention層が密/疎を動的に切り替えられます。
+        def k_callback(data):
+            if hasattr(transformer, 'transformer'):
+                # `data`辞書から現在のステップインデックス`i`を取得
+                transformer.transformer.numeral_timestep = data.get('i', 0)
+        # =======================================
 
         sampler_kwargs = dict(
             transformer=transformer, sampler="unipc", strength=strength, width=bucket_w, height=bucket_h,
@@ -181,6 +207,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             clean_latent_2x_indices=clean_latent_2x_indices,
             clean_latents_4x=clean_latents_4x,
             clean_latent_4x_indices=clean_latent_4x_indices,
+            callback=k_callback, # コールバック関数をサンプラーに渡す
         )
         
         generated_latents = sample_hunyuan(**sampler_kwargs)
@@ -223,7 +250,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             saved_count += 1
         
         print(f"[tensor_tool] Chunk {chunk_num} processed. Total frames saved: {saved_count}/{total_frames_to_generate}")
+    
     # --- 6. 処理完了と戻り値 ---
     print(f"\n[tensor_tool] Process complete. Total {saved_count} frames saved to {args.outdir}")
-    # アーキテクチャ設計に合わせ、UI更新時の不整合を避けるため戻り値は常にNoneとする 
     return None
