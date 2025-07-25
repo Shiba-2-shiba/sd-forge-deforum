@@ -6,6 +6,7 @@ import torch
 import numpy as np
 import re
 from PIL import Image
+import types # ★ MethodTypeのためにインポート
 
 # tensor_processingからデコード関数をインポート
 from . import tensor_processing
@@ -76,16 +77,13 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
     high_vram = transformer_manager.current_state['high_vram']
 
     # === Radial Attentionパッチ適用処理 ===
-    # integration.pyから渡されたra_paramsを取得
-    ra_params = framepack_f1_args.get('ra_params', {})
+    ra_params = getattr(framepack_f1_args, 'ra_params', {})
     if ra_params.get("enabled", False):
-        print("[tensor_tool] Applying Radial Attention patch to the transformer model...")
-        # チャンクあたりのフレーム数を計算
-        # f1_generation_latent_sizeはキーフレーム間のlatent数なので、実際のフレーム数に変換
+        print("[tensor_tool] Applying Radial Attention patch to attention layers...")
         num_frames_per_chunk = int(framepack_f1_args.f1_generation_latent_size * 4 - 3)
         
         apply_radial_attention_patch(
-            transformer, # パッチ対象はtransformerモデル
+            transformer,
             dense_layers=ra_params.get("dense_layers"),
             dense_timesteps=ra_params.get("dense_timesteps"),
             decay_factor=ra_params.get("decay_factor"),
@@ -93,6 +91,31 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             width=args.W,
             height=args.H
         )
+
+        # ★★★★★ 新しいパッチングロジック ★★★★★
+        # transformer.forwardをラップして、timestepを捕捉する
+        print("[tensor_tool] Patching main transformer.forward for timestep tracking...")
+        
+        # 元のforwardメソッドを保持
+        if not hasattr(transformer, 'original_forward_for_ra'):
+             transformer.original_forward_for_ra = transformer.forward
+
+        def forward_wrapper(self, *args, **kwargs):
+            # forward(self, hidden_states, timestep, ...) のシグネチャを想定
+            # args[0]はhidden_states, args[1]はtimestep
+            timestep = kwargs.get('timestep', args[1] if len(args) > 1 else None)
+
+            if timestep is not None:
+                # 捕捉したtimestepをオブジェクト自身に保存
+                self.current_timestep_for_ra = timestep
+            
+            # 元のforwardメソッドを呼び出す
+            return self.original_forward_for_ra(*args, **kwargs)
+
+        # ラッパーをtransformerインスタンスのメソッドとしてバインド
+        transformer.forward = types.MethodType(forward_wrapper, transformer)
+        # ★★★★★ パッチングロジックここまで ★★★★★
+
     # =======================================
 
     # --- 2. パラメータの準備 ---
@@ -180,15 +203,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
         damping_factor = 1.08
         clean_latents = clean_latents * damping_factor
         
-        # === k-diffusionコールバックの定義 ===
-        # このコールバックはサンプリングループの各ステップで呼び出され、
-        # 現在のステップ数をtransformerモデルオブジェクトに格納します。
-        # これにより、パッチ適用されたAttention層が密/疎を動的に切り替えられます。
-        def k_callback(data):
-            if hasattr(transformer, 'transformer'):
-                # `data`辞書から現在のステップインデックス`i`を取得
-                transformer.transformer.numeral_timestep = data.get('i', 0)
-        # =======================================
+        # === k-diffusionコールバックは不要になったため削除 ===
 
         sampler_kwargs = dict(
             transformer=transformer, sampler="unipc", strength=strength, width=bucket_w, height=bucket_h,
@@ -207,7 +222,7 @@ def execute_generation(managers: dict, device, args, anim_args, video_args, fram
             clean_latent_2x_indices=clean_latent_2x_indices,
             clean_latents_4x=clean_latents_4x,
             clean_latent_4x_indices=clean_latent_4x_indices,
-            callback=k_callback, # コールバック関数をサンプラーに渡す
+            # callback=k_callback, # <-- この行を削除
         )
         
         generated_latents = sample_hunyuan(**sampler_kwargs)
