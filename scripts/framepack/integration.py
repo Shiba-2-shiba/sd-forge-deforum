@@ -243,13 +243,15 @@ class FramepackIntegration:
             
             # === Radial Attentionのパラメータをここで設定 ===
             # UIを介さず、デフォルトで有効にするための設定をハードコードする。
+           # === Radial Attentionのパラメータをここで設定 ===
+            # UIを介さず、デフォルトで有効にするための設定をハードコードする。
             print("[FramePack Integration] Enabling Radial Attention with default parameters.")
-            framepack_f1_args['ra_params'] = {
+            setattr(framepack_f1_args, 'ra_params', {
                 "enabled": True,      # Radial Attentionを有効化
                 "dense_layers": 0,    # 密なアテンションを維持する初期レイヤー数
                 "dense_timesteps": 12,# 密なアテンションを維持する初期タイムステップ数
                 "decay_factor": 1.0,  # アテンション窓の減衰率
-            }
+            })
             # ===============================================
 
             # 設定変更に基づき、モデルをリロード（必要に応じて）
