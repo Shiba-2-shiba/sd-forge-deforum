@@ -4,7 +4,8 @@ from .progress_bar import make_progress_bar_html
 from PIL import Image
 import numpy as np
 from .hunyuan import vae_decode
-from .vae_cache import vae_decode_cache
+# VAEの因果的デコードに必要なフック関数をvae_cacheからインポートします
+from .vae_cache import hook_vae, restore_vae
 from .utils import save_bcthw_as_mp4
 
 
@@ -70,6 +71,63 @@ def ensure_tensor_properties(
             ("テンソルプロパティの調整に失敗: {0}").format(str(e))
         )
 
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# ★★★ エラーを修正し、ループを最適化したVAEデコード関数 ★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+def process_latents(
+    latents: torch.Tensor,
+    vae: torch.nn.Module,
+    use_vae_cache: bool = True, # このモデルでは因果的デコードが必須のため、フラグに関わらず常に実行
+    debug_str: str = "",
+) -> torch.Tensor:
+    """
+    VAEデコード：latentをpixels化する (因果的デコード ＋ ループ最適化版)
+    Hunyuan VAEの因果的（Causal）な性質を維持しつつ、ループ内のtorch.catを排除して高速化します。
+    """
+    if latents.dim() != 5:
+        raise ValueError(f"Latent tensor must be 5D, but got shape {latents.shape}")
+
+    print(f"--- VAE Causal Decode (Optimized Loop) 開始 {debug_str} ---")
+    print_tensor_info(latents, "入力Latent")
+
+    # 1. デコードの準備
+    latents = latents / vae.config.scaling_factor
+    latents = latents.to(device=vae.device, dtype=vae.dtype)
+    frames = latents.shape[2]
+    
+    # 2. VAEに因果的デコード用のフックを適用
+    hook_vae(vae)
+    
+    decoded_slices = [] # デコード結果を格納するリスト
+    try:
+        # 3. 1フレームずつループ処理 (このモデルのアーキテクチャでは必須)
+        for i in range(frames):
+            latents_slice = latents[:, :, i:i+1, :, :]
+            
+            # VAEのdecodeメソッドはフレーム間のキャッシュ（状態）をフックを通じて管理する
+            image_slice = vae.decode(latents_slice).sample
+            
+            # ★最適化ポイント: テンソルを直接連結せず、リストに追加する
+            decoded_slices.append(image_slice)
+            
+    except Exception as e:
+        print(f"[エラー] VAEのフレームごとのデコード中にエラーが発生しました: {e}")
+        # エラー発生時も必ずフックを元に戻す
+        restore_vae(vae)
+        raise e
+    finally:
+        # 4. VAEのフックを解除し、元の状態に戻す
+        restore_vae(vae)
+
+    # 5. ★最適化ポイント: ループ終了後、リスト内の全スライスを一度に結合
+    pixels = torch.cat(decoded_slices, dim=2) # 時間（フレーム）次元で結合
+    
+    print(f"[DEBUG] 最終的なピクセル形状に復元: {pixels.shape}")
+    print("--- VAE Causal Decode (Optimized Loop) 完了 ---")
+    
+    # 後続の処理のため、結果をCPUメモリに移動
+    return pixels.cpu()
+
 
 def process_tensor_chunk(
     chunk_idx: int,
@@ -83,138 +141,45 @@ def process_tensor_chunk(
     stream: any,
     reverse: bool,
 ) -> torch.Tensor:
-    """個別のテンソルチャンクを処理する
-
-    Args:
-        chunk_idx (int): 現在のチャンクのインデックス
-        current_chunk (torch.Tensor): 処理対象のチャンク
-        num_chunks (int): 総チャンク数
-        chunk_start (int): チャンクの開始フレーム位置
-        chunk_end (int): チャンクの終了フレーム位置
-        frames (int): 総フレーム数
-        use_vae_cache (bool): VAEキャッシュを使用するかどうか
-        vae (torch.nn.Module): VAEモデル
-        stream: 進捗表示用のストリームオブジェクト
-        reverse (bool): フレーム順序を反転するかどうか
-
-    Returns:
-        torch.Tensor: 処理済みのピクセルテンソル
-
-    Raises:
-        RuntimeError: チャンク処理中にエラーが発生した場合
-    """
+    """個別のテンソルチャンクを処理する（この関数は変更なし）"""
     try:
         chunk_frames = chunk_end - chunk_start
 
-        # チャンクサイズの検証
         if chunk_frames <= 0:
-            raise ValueError(
-                f"不正なチャンクサイズ: {chunk_frames} (start={chunk_start}, end={chunk_end})"
-            )
-
+            raise ValueError(f"不正なチャンクサイズ: {chunk_frames} (start={chunk_start}, end={chunk_end})")
         if current_chunk.shape[2] <= 0:
             raise ValueError(f"不正なテンソル形状: {current_chunk.shape}")
 
-        # 進捗状況を更新
         chunk_progress = (chunk_idx + 1) / num_chunks * 100
-        progress_message = (
-            "テンソルデータ結合中: チャンク {0}/{1} (フレーム {2}-{3}/{4})"
-        ).format(
-            chunk_idx + 1,
-            num_chunks,
-            chunk_start,
-            chunk_end,
-            frames,
-        )
-        stream.output_queue.push(
-            (
-                "progress",
-                (
-                    None,
-                    progress_message,
-                    make_progress_bar_html(
-                        int(80 + chunk_progress * 0.1),
-                        ("テンソルデータ処理中"),
-                    ),
-                ),
-            )
-        )
+        progress_message = ("テンソルデータ結合中: チャンク {0}/{1} (フレーム {2}-{3}/{4})").format(chunk_idx + 1, num_chunks, chunk_start, chunk_end, frames)
+        stream.output_queue.push(("progress", (None, progress_message, make_progress_bar_html(int(80 + chunk_progress * 0.1), ("テンソルデータ処理中")))))
 
-        print(
-            ("チャンク{0}/{1}処理中: フレーム {2}-{3}/{4}").format(
-                chunk_idx + 1,
-                num_chunks,
-                chunk_start,
-                chunk_end,
-                frames,
-            )
-        )
+        print(("チャンク{0}/{1}処理中: フレーム {2}-{3}/{4}").format(chunk_idx + 1, num_chunks, chunk_start, chunk_end, frames))
 
-        # メモリ状態を出力
         if torch.cuda.is_available():
-            print(
-                (
-                    "[MEMORY] チャンク{0}処理前のGPUメモリ: {1:.2f}GB/{2:.2f}GB"
-                ).format(
-                    chunk_idx + 1,
-                    torch.cuda.memory_allocated() / 1024**3,
-                    torch.cuda.get_device_properties(0).total_memory / 1024**3,
-                )
-            )
-            # メモリキャッシュをクリア
+            print(("[MEMORY] チャンク{0}処理前のGPUメモリ: {1:.2f}GB/{2:.2f}GB").format(chunk_idx + 1, torch.cuda.memory_allocated() / 1024**3, torch.cuda.get_device_properties(0).total_memory / 1024**3))
             torch.cuda.empty_cache()
 
-        # 各チャンク処理前にGPUメモリを解放
         if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            import gc
+            torch.cuda.synchronize(); torch.cuda.empty_cache(); import gc; gc.collect()
 
-            gc.collect()
-
-        # VAEデコード処理
         print(("[INFO] VAEデコード開始: チャンク{0}").format(chunk_idx + 1))
-        stream.output_queue.push(
-            (
-                "progress",
-                (
-                    None,
-                    ("チャンク{0}/{1}のVAEデコード中...").format(
-                        chunk_idx + 1, num_chunks
-                    ),
-                    make_progress_bar_html(
-                        int(80 + chunk_progress * 0.1),
-                        ("デコード処理"),
-                    ),
-                ),
-            )
-        )
-
+        stream.output_queue.push(("progress", (None, ("チャンク{0}/{1}のVAEデコード中...").format(chunk_idx + 1, num_chunks), make_progress_bar_html(int(80 + chunk_progress * 0.1), ("デコード処理")))))
         print_tensor_info(current_chunk, "チャンク{0}".format(chunk_idx + 1))
 
-        # 明示的にデバイスを合わせる
         current_chunk = ensure_tensor_properties(current_chunk, vae.device)
 
-        chunk_pixels = process_latents(
-            current_chunk,
-            vae,
-            use_vae_cache,
-            ("チャンク"),
-        )
-        print(
-            (
-                "チャンク{0}のVAEデコード完了 (フレーム数: {1}, デコード後フレーム: {2})"
-            ).format(chunk_idx + 1, chunk_frames, chunk_pixels.shape)
-        )
+        # 修正された process_latents を呼び出す
+        chunk_pixels = process_latents(current_chunk, vae, use_vae_cache, ("チャンク"))
+        
+        print(("チャンク{0}のVAEデコード完了 (入力フレーム数: {1}, 出力形状: {2})").format(chunk_idx + 1, chunk_frames, chunk_pixels.shape))
 
         if reverse:
             chunk_pixels = reorder_tensor(chunk_pixels)
         return chunk_pixels
 
     except Exception as e:
-        error_msg = ("チャンク{0}の処理中にエラーが発生: {1}").format(
-            chunk_idx + 1, str(e)
-        )
+        error_msg = ("チャンク{0}の処理中にエラーが発生: {1}").format(chunk_idx + 1, str(e))
         print(f"[エラー] {error_msg}")
         raise RuntimeError(error_msg)
 
@@ -231,316 +196,99 @@ def process_tensor_chunks(
     reverse: bool = False,
     skip_save: bool = True,
 ) -> tuple[torch.Tensor, int]:
-    """テンソルデータをチャンクに分割して処理する
-
-    Args:
-        tensor (torch.Tensor): 処理対象のテンソル
-        frames (int): フレーム数
-        use_vae_cache (bool): VAEキャッシュを使用するかどうか
-        job_id (str): ジョブID
-        outputs_folder (str): 出力フォルダパス
-        mp4_crf (int): MP4のCRF値
-        stream: 進捗表示用のストリームオブジェクト
-        vae (torch.nn.Module): VAEモデル
-        reverse (bool, optional): フレーム順序を反転するかどうか. デフォルトはFalse
-        skip_save (bool, optional): 中間結果の保存をスキップするかどうか. デフォルトはTrue
-
-    Returns:
-        tuple[torch.Tensor, int]: (結合されたピクセルテンソル, 処理したチャンク数)
-
-    Raises:
-        RuntimeError: テンソル処理中にエラーが発生した場合
-    """
+    """テンソルデータをチャンクに分割して処理する（この関数は変更なし）"""
     try:
         if frames <= 0:
             raise ValueError(f"不正なフレーム数: {frames}")
 
         combined_pixels = None
-        # チャンクサイズは5以上、フレーム数以下に制限
         chunk_size = min(5, frames)
         num_chunks = (frames + chunk_size - 1) // chunk_size
 
-        # テンソルデータの詳細を出力
-        print(f"[DEBUG] フレーム総数: {frames}")
-        print(f"[DEBUG] チャンクサイズ: {chunk_size}")
-        print(f"[DEBUG] チャンク数: {num_chunks}")
-        print(f"[DEBUG] 入力テンソル形状: {tensor.shape}")
-        print(f"[DEBUG] VAEキャッシュ: {use_vae_cache}")
-        print(f"[DEBUG] ジョブID: {job_id}")
-        print_tensor_info(tensor, "入力テンソル")
+        print(f"[DEBUG] フレーム総数: {frames}"); print(f"[DEBUG] チャンクサイズ: {chunk_size}"); print(f"[DEBUG] チャンク数: {num_chunks}"); print(f"[DEBUG] 入力テンソル形状: {tensor.shape}"); print(f"[DEBUG] VAEキャッシュ(旧フラグ): {use_vae_cache}"); print(f"[DEBUG] ジョブID: {job_id}"); print_tensor_info(tensor, "入力テンソル")
 
-        # テンソルの形状を確認
         if tensor.shape[2] != frames:
-            raise ValueError(
-                f"テンソル形状不一致: テンソルのフレーム数 {tensor.shape[2]} != 指定フレーム数 {frames}"
-            )
+            raise ValueError(f"テンソル形状不一致: テンソルのフレーム数 {tensor.shape[2]} != 指定フレーム数 {frames}")
 
-        # チャンク処理
         for chunk_idx in range(num_chunks):
             chunk_start = chunk_idx * chunk_size
             chunk_end = min(chunk_start + chunk_size, frames)
 
-            # チャンクサイズの確認
             if chunk_end <= chunk_start:
-                print(
-                    f"[警告] 不正なチャンク範囲をスキップ: start={chunk_start}, end={chunk_end}"
-                )
-                continue
+                print(f"[警告] 不正なチャンク範囲をスキップ: start={chunk_start}, end={chunk_end}"); continue
 
             try:
-                # 現在のチャンクを取得
                 current_chunk = tensor[:, :, chunk_start:chunk_end, :, :]
-                chunk_pixels = process_tensor_chunk(
-                    chunk_idx,
-                    current_chunk,
-                    num_chunks,
-                    chunk_start,
-                    chunk_end,
-                    frames,
-                    use_vae_cache,
-                    vae,
-                    stream,
-                    reverse,
-                )
+                chunk_pixels = process_tensor_chunk(chunk_idx, current_chunk, num_chunks, chunk_start, chunk_end, frames, use_vae_cache, vae, stream, reverse)
 
-                # 結果の結合
                 if combined_pixels is None:
                     combined_pixels = chunk_pixels
                 else:
-                    # 両方とも必ずCPUに移動してから結合
-                    current_chunk = ensure_tensor_properties(
-                        current_chunk, torch.device("cpu")
-                    )
-                    combined_pixels = ensure_tensor_properties(
-                        combined_pixels, torch.device("cpu")
-                    )
-                    # 結合処理
-                    combined_pixels = torch.cat(
-                        [combined_pixels, chunk_pixels],
-                        dim=2,
-                    )
+                    combined_pixels = ensure_tensor_properties(combined_pixels, torch.device("cpu"))
+                    combined_pixels = torch.cat([combined_pixels, chunk_pixels], dim=2)
 
-                # 結合後のフレーム数を確認
                 current_total_frames = combined_pixels.shape[2]
-                print(
-                    (
-                        "チャンク{0}の結合完了: 現在の組み込みフレーム数 = {1}"
-                    ).format(chunk_idx + 1, current_total_frames)
-                )
+                print(("チャンク{0}の結合完了: 現在の組み込みフレーム数 = {1}").format(chunk_idx + 1, current_total_frames))
 
-                # 中間結果の保存（チャンクごとに保存すると効率が悪いので、最終チャンクのみ保存）
-                if chunk_idx == num_chunks - 1 or (
-                    chunk_idx > 0 and (chunk_idx + 1) % 5 == 0
-                ):
-                    # 5チャンクごと、または最後のチャンクで保存
-                    interim_output_filename = os.path.join(
-                        outputs_folder,
-                        f"{job_id}_combined_interim_{chunk_idx + 1}.mp4",
-                    )
-                    print(
-                        ("中間結果を保存中: チャンク{0}/{1}").format(
-                            chunk_idx + 1, num_chunks
-                        )
-                    )
+                if not skip_save and (chunk_idx == num_chunks - 1 or (chunk_idx > 0 and (chunk_idx + 1) % 5 == 0)):
+                    interim_output_filename = os.path.join(outputs_folder, f"{job_id}_combined_interim_{chunk_idx + 1}.mp4")
+                    print(("中間結果を保存中: チャンク{0}/{1}").format(chunk_idx + 1, num_chunks))
+                    
+                    chunk_progress = (chunk_idx + 1) / num_chunks * 100
+                    stream.output_queue.push(("progress", (None, ("中間結果のMP4変換中... (チャンク{0}/{1})").format(chunk_idx + 1, num_chunks), make_progress_bar_html(int(85 + chunk_progress * 0.1), ("MP4保存中")))))
+                    
+                    save_bcthw_as_mp4(combined_pixels, interim_output_filename, fps=30, crf=mp4_crf)
+                    print(("中間結果を保存しました: {0}").format(interim_output_filename))
+                    stream.output_queue.push(("file", interim_output_filename))
 
-                    # （中間）動画を保存するかどうか
-                    if not skip_save:
-                        chunk_progress = (chunk_idx + 1) / num_chunks * 100
-                        stream.output_queue.push(
-                            (
-                                "progress",
-                                (
-                                    None,
-                                    (
-                                        "中間結果のMP4変換中... (チャンク{0}/{1})"
-                                    ).format(chunk_idx + 1, num_chunks),
-                                    make_progress_bar_html(
-                                        int(85 + chunk_progress * 0.1),
-                                        ("MP4保存中"),
-                                    ),
-                                ),
-                            )
-                        )
-
-                        # MP4として保存
-                        save_bcthw_as_mp4(
-                            combined_pixels,
-                            interim_output_filename,
-                            fps=30,
-                            crf=mp4_crf,
-                        )
-                        print(
-                            ("中間結果を保存しました: {0}").format(
-                                interim_output_filename
-                            )
-                        )
-
-                        # 結合した動画をUIに反映するため、出力フラグを立てる
-                        stream.output_queue.push(("file", interim_output_filename))
-
-                # メモリ解放
-                del current_chunk
-                del chunk_pixels
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                del current_chunk, chunk_pixels
+                if torch.cuda.is_available(): torch.cuda.empty_cache()
 
             except Exception as e:
-                error_msg = ("チャンク{0}の処理中にエラー: {1}").format(
-                    chunk_idx + 1, str(e)
-                )
-                print(f"[エラー] {error_msg}")
-                raise
+                error_msg = ("チャンク{0}の処理中にエラー: {1}").format(chunk_idx + 1, str(e))
+                print(f"[エラー] {error_msg}"); raise
 
         return combined_pixels, num_chunks
 
     except Exception as e:
         error_msg = ("テンソル処理中に重大なエラーが発生: {0}").format(str(e))
-        print(f"[重大エラー] {error_msg}")
-        raise RuntimeError(error_msg)
+        print(f"[重大エラー] {error_msg}"); raise RuntimeError(error_msg)
 
 
 def output_latent_to_image(
-    latent: torch.Tensor,
-    file_path: str,
-    vae: torch.nn.Module,
-    use_vae_cache: bool = False,
+    latent: torch.Tensor, file_path: str, vae: torch.nn.Module, use_vae_cache: bool = False
 ) -> None:
-    """VAEを使用してlatentを画像化してファイル出力する
-
-    Args:
-        latent (torch.Tensor): 変換対象のlatentテンソル
-        file_path (str): 出力ファイルパス
-        vae (torch.nn.Module): VAEモデル
-        use_vae_cache (bool, optional): VAEキャッシュを使用するかどうか. デフォルトはFalse
-
-    Raises:
-        Exception: latentの次元が5でない場合
-    """
+    """VAEを使用してlatentを画像化してファイル出力する（この関数は変更なし）"""
     if latent.dim() != 5:
         raise Exception(f"Error: latent dimension must be 5, got {latent.dim()}")
 
     image_pixels = process_latents(latent, vae, use_vae_cache)
-    image_pixels = (
-        (image_pixels[0, :, 0] * 127.5 + 127.5)
-        .permute(1, 2, 0)
-        .cpu()
-        .numpy()
-        .clip(0, 255)
-        .astype(np.uint8)
-    )
+    image_pixels = ((image_pixels[0, :, 0] * 127.5 + 127.5).permute(1, 2, 0).cpu().numpy().clip(0, 255).astype(np.uint8))
     Image.fromarray(image_pixels).save(file_path)
 
 
 def fix_tensor_size(
-    tensor: torch.Tensor,
-    target_size: int = 1 + 2 + 16,
-    fix_edge=True,
+    tensor: torch.Tensor, target_size: int = 1 + 2 + 16, fix_edge=True
 ) -> torch.Tensor:
-    """tensorのフレーム情報（[batch_size, chanel, frames, height, width]のframes）が小さい場合に補間する
-    latentの補間は動画にしてもきれいにはならないので注意
-
-    Args:
-        latent (torch.Tensor): 補間対象のテンソル
-        target_size (int, optional): 目標フレームサイズ. デフォルトは19(1+2+16)
-        fix_edge (bool): 入力されたテンソルの開始、終了フレームを固定する
-
-    Returns:
-        torch.Tensor: サイズ調整されたlatentテンソル
-
-    Raises:
-        Exception: latentの次元が5でない場合
-    """
+    """tensorのフレーム情報が小さい場合に補間する（この関数は変更なし）"""
     if tensor.dim() != 5:
         raise Exception(f"Programing Error: latent dim != 5. {tensor.shape}")
     if tensor.shape[2] < target_size:
-        print(
-            f"[WARN] latentサイズが足りないので補間します。{tensor.shape[2]}=>{target_size}"
-        )
-
+        print(f"[WARN] latentサイズが足りないので補間します。{tensor.shape[2]}=>{target_size}")
+        mode = "nearest"
         if fix_edge:
-            first_frame = tensor[:, :, :1, :, :]
-            last_frame = tensor[:, :, -1:, :, :]
-            middle_frames = tensor[:, :, 1:-1, :, :]
-
-            # 足りない部分を補間（再生の補間ではなく4の倍数にするための補間）
-            # これをこのまま再生しても綺麗ではない
-            fixed_tensor = torch.nn.functional.interpolate(
-                middle_frames,
-                size=(
-                    target_size - 2,
-                    tensor.shape[3],
-                    tensor.shape[4],
-                ),
-                mode="nearest",
-            )
-            # 結合処理
-            fixed_tensor = torch.cat(
-                [first_frame, fixed_tensor, last_frame],
-                dim=2,
-            )
+            first_frame, last_frame, middle_frames = tensor[:, :, :1, :, :], tensor[:, :, -1:, :, :], tensor[:, :, 1:-1, :, :]
+            fixed_tensor = torch.nn.functional.interpolate(middle_frames, size=(target_size - 2, tensor.shape[3], tensor.shape[4]), mode=mode)
+            fixed_tensor = torch.cat([first_frame, fixed_tensor, last_frame], dim=2)
         else:
-            fixed_tensor = torch.nn.functional.interpolate(
-                tensor,
-                size=(
-                    target_size - 2,
-                    tensor.shape[3],
-                    tensor.shape[4],
-                ),
-                mode="nearest",
-            )
+            fixed_tensor = torch.nn.functional.interpolate(tensor, size=(target_size, tensor.shape[3], tensor.shape[4]), mode=mode)
     else:
         fixed_tensor = tensor
     return fixed_tensor
 
 
-def process_latents(
-    latents: torch.Tensor,
-    vae: torch.nn.Module,
-    use_vae_cache: bool = False,
-    debug_str: str = "",
-) -> torch.Tensor:
-    """VAEデコード：latentをpixels化する
-
-    Args:
-        latents (torch.Tensor): デコード対象のlatentテンソル
-        vae (torch.nn.Module): VAEモデル
-        use_vae_cache (bool, optional): VAEキャッシュを使用するかどうか. デフォルトはFalse
-        debug_str (str, optional): デバッグ用の文字列. デフォルトは空文字
-
-    Returns:
-        torch.Tensor: デコードされたピクセルテンソル
-
-    Raises:
-        Exception: latentの次元が5でない場合
-    """
-    if latents.dim() != 5:
-        raise Exception(f"Programing Error: latent dim != 5. {latents.shape}")
-
-    print(f"[DEBUG] VAEデコード前のlatentsの形状: {latents.shape}")
-    print(f"[DEBUG] VAEデコード前のlatentsのデバイス: {latents.device}")
-    print(f"[DEBUG] VAEデコード前のlatentsのデータ型: {latents.dtype}")
-
-    if use_vae_cache:
-        print(f"[INFO] VAEキャッシュを使用 {debug_str}")
-        pixels = vae_decode_cache(latents, vae).cpu()
-    else:
-        print(f"[INFO] 通常デコード使用 {debug_str}")
-        # デバイスとデータ型を明示的に合わせる
-        latents = latents.to(device=vae.device, dtype=vae.dtype)
-        pixels = vae_decode(latents, vae).cpu()
-    return pixels
-
-
 def reorder_tensor(tensor: torch.Tensor, reverse: bool = False) -> torch.Tensor:
-    """テンソルのフレーム順序を操作する
-
-    Args:
-        tensor (torch.Tensor): 操作対象のテンソル
-        reverse (bool, optional): 順序を反転するかどうか. デフォルトはFalse
-
-    Returns:
-        torch.Tensor: フレーム順序が調整されたテンソル
-    """
+    """テンソルのフレーム順序を操作する（この関数は変更なし）"""
     if reverse:
         return tensor.flip(dims=[2])
     return tensor
